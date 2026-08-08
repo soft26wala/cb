@@ -1,0 +1,124 @@
+const db = require('../config/db');
+
+const isUUID = (str) =>
+  typeof str === 'string' &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
+class UserPriceModel {
+  static async resolveUserId(userIdOrEmail) {
+    if (!userIdOrEmail || userIdOrEmail === 'me' || userIdOrEmail === 'undefined' || userIdOrEmail === 'null') {
+      return null;
+    }
+
+    // 1. If it's a valid UUID, verify whether it exists in users table
+    if (isUUID(userIdOrEmail)) {
+      const userRes = await db.query(
+        `SELECT id FROM users WHERE id = $1 LIMIT 1`,
+        [userIdOrEmail]
+      ).catch(() => ({ rows: [] }));
+
+      if (userRes.rows.length > 0) {
+        return userRes.rows[0].id;
+      }
+    }
+
+    // 2. If not found by UUID or if passed email/username, lookup by email or username
+    const userRes = await db.query(
+      `SELECT id FROM users WHERE email ILIKE $1 OR username ILIKE $1 LIMIT 1`,
+      [userIdOrEmail]
+    ).catch(() => ({ rows: [] }));
+
+    if (userRes.rows.length > 0) {
+      return userRes.rows[0].id;
+    }
+
+    return null;
+  }
+
+  static async getPricesByUser(userIdOrEmail) {
+    const targetUserId = await this.resolveUserId(userIdOrEmail);
+
+    if (!targetUserId) {
+      return [];
+    }
+
+    // Fetch user_prices joined with products
+    // buy_price  -> frontend GST calculation ke liye
+    // custom_price -> frontend pe display hoga (user ka special price)
+    // sell_price ka yahan koi use nahi
+    const query = `
+      SELECT up.price_id,
+             up.user_id,
+             up.product_id,
+             up.custom_price,
+             up.created_at,
+             up.updated_at,
+             p.product_name,
+             p.description   AS product_description,
+             p.buy_price
+      FROM user_prices up
+      JOIN products p ON up.product_id = p.p_id
+      WHERE up.user_id = $1
+      ORDER BY p.product_name ASC
+    `;
+    const result = await db.query(query, [targetUserId]);
+    return result.rows;
+  }
+
+  static async getSinglePrice(userIdOrEmail, productId) {
+    const targetUserId = await this.resolveUserId(userIdOrEmail);
+
+    if (targetUserId) {
+      const query = `
+        SELECT up.price_id, up.user_id, up.product_id,
+               COALESCE(NULLIF(up.custom_price, 0), NULLIF(p.custom_price, 0), p.sell_price, 0.00) as custom_price,
+               p.sell_price as default_sell_price
+        FROM products p
+        LEFT JOIN user_prices up ON (p.p_id = up.product_id AND up.user_id = $1)
+        WHERE p.p_id = $2
+      `;
+      const result = await db.query(query, [targetUserId, productId]);
+      if (result.rows.length > 0) {
+        return result.rows[0];
+      }
+    }
+
+    // Fallback to product default sell_price
+    const prodQuery = `SELECT sell_price as custom_price, sell_price as default_sell_price FROM products WHERE p_id = $1`;
+    const prodRes = await db.query(prodQuery, [productId]);
+    if (prodRes.rows.length > 0) {
+      return prodRes.rows[0];
+    }
+    return null;
+  }
+
+  static async updateCustomPrice(priceId, customPrice) {
+    const query = `
+      UPDATE user_prices
+      SET custom_price = $1, updated_at = CURRENT_TIMESTAMP
+      WHERE price_id = $2
+      RETURNING *
+    `;
+    const result = await db.query(query, [customPrice, priceId]);
+    return result.rows[0];
+  }
+
+  static async upsertCustomPrice(userIdOrEmail, productId, customPrice) {
+    let targetUserId = await this.resolveUserId(userIdOrEmail);
+    if (!targetUserId && isUUID(userIdOrEmail)) {
+      targetUserId = userIdOrEmail;
+    }
+
+    const query = `
+      INSERT INTO user_prices (user_id, product_id, custom_price)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (user_id, product_id)
+      DO UPDATE SET custom_price = EXCLUDED.custom_price, updated_at = CURRENT_TIMESTAMP
+      RETURNING *
+    `;
+    const result = await db.query(query, [targetUserId, productId, customPrice]);
+    return result.rows[0];
+  }
+}
+
+module.exports = UserPriceModel;

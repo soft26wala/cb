@@ -1,0 +1,66 @@
+const express = require('express');
+const authRoutes = require('./auth.routes');
+const userRoutes = require('./user.routes');
+const categoryRoutes = require('./category.routes');
+const productRoutes = require('./product.routes');
+const userPriceRoutes = require('./userPrice.routes');
+const orderRoutes = require('./order.routes');
+const accountRoutes = require('./account.routes');
+const expenseRoutes = require('./expense.routes');
+const employeeRoutes = require('./employee.routes');
+const salaryRoutes = require('./salary.routes');
+const loanRoutes = require('./loan.routes');
+const reportRoutes = require('./report.routes');
+const searchRoutes = require('./search.routes');
+const dashboardRoutes = require('./dashboard.routes');
+const permissionRoutes = require('./permission.routes');
+const memoRoutes = require('./memo.routes');
+const financialYearRoutes = require('./financialYear.routes');
+const shortcutRoutes = require('./shortcut.routes');
+const companyCredentialsRoutes = require('./companyCredentials.routes');
+const awardRoutes = require('./award.routes');
+
+const router = express.Router();
+
+router.use('/company-credentials', companyCredentialsRoutes);
+router.use('/company-credential', companyCredentialsRoutes);
+router.use('/credentials', companyCredentialsRoutes);
+
+router.use('/awards', awardRoutes);
+router.use('/award', awardRoutes);
+router.use('/accolades', awardRoutes);
+router.use('/auth', authRoutes);
+router.use('/', authRoutes);
+router.use('/users', userRoutes);
+router.use('/user', userRoutes);
+router.use('/categories', categoryRoutes);
+router.use('/category', categoryRoutes);
+router.use('/products', productRoutes);
+router.use('/product', productRoutes);
+router.use('/user-prices', userPriceRoutes);
+router.use('/orders', orderRoutes);
+router.use('/order', orderRoutes);
+router.use('/invoices', orderRoutes);
+router.use('/accounts', accountRoutes);
+router.use('/expenses', expenseRoutes);
+router.use('/expense', expenseRoutes);
+
+router.use('/employees', employeeRoutes);
+router.use('/salary', salaryRoutes);
+router.use('/salaries', salaryRoutes);
+router.use('/loans', loanRoutes);
+router.use('/loan', loanRoutes);
+router.use('/reports', reportRoutes);
+router.use('/', reportRoutes);
+router.use('/search', searchRoutes);
+router.use('/dashboard', dashboardRoutes);
+router.use('/permissions', permissionRoutes);
+router.use('/memos', memoRoutes);
+router.use('/financial-year', financialYearRoutes);
+router.use('/financial-years', financialYearRoutes);
+router.use('/shortcuts', shortcutRoutes);
+router.use('/shortcut', shortcutRoutes);
+const OrderController = require('../controllers/order.controller');
+router.post('/verify-pst', OrderController.verifyPstNumber);
+
+module.exports = router;
