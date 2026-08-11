@@ -259,6 +259,31 @@ class OrderController {
       next(error);
     }
   }
+
+  static async updateDeliveryAndDiscount(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { delivery_charge, discount_amount } = req.body;
+
+      const updatedOrder = await OrderModel.updateDeliveryAndDiscount(id, {
+        delivery_charge,
+        discount_amount,
+      });
+
+      await recordHistory({
+        userId: req.user ? req.user.id : null,
+        action: 'UPDATE',
+        tableName: 'orders',
+        recordId: id,
+        newData: { delivery_charge, discount_amount, total_amount: updatedOrder.total_amount },
+        ipAddress: req.ip,
+      }).catch(() => {});
+
+      return successResponse(res, 'Delivery charge & discount updated successfully', updatedOrder);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 module.exports = OrderController;

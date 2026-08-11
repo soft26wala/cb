@@ -19,6 +19,10 @@ const ensureSizingColumnsExist = async () => {
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pst_verified BOOLEAN DEFAULT FALSE;`);
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pst_exempt BOOLEAN DEFAULT FALSE;`);
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pst_verification_date TIMESTAMP WITH TIME ZONE;`);
+    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_charge NUMERIC(12, 2) DEFAULT 0;`);
+    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12, 2) DEFAULT 0;`);
+    await db.query(`ALTER TABLE invoice ADD COLUMN IF NOT EXISTS delivery_charge NUMERIC(12, 2) DEFAULT 0;`);
+    await db.query(`ALTER TABLE invoice ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12, 2) DEFAULT 0;`);
 
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_number VARCHAR(100);`);
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS po_number VARCHAR(100);`);
@@ -290,6 +294,10 @@ class OrderModel {
       finalOrderNumber = `ORD-${year}-${nextSeq}`;
     }
 
+    const deliveryCharge = parseFloat(orderPayload.delivery_charge || orderPayload.deliveryCharge || 0) || 0;
+    const discountAmount = parseFloat(orderPayload.discount_amount || orderPayload.discount || orderPayload.discountAmount || 0) || 0;
+    const taxableSubtotal = Math.max(0, calculatedSubtotal - discountAmount);
+
     // PST Verification
     const rawPst = pst_number || pstNumber || '';
     let isPstVerified = false;
@@ -303,10 +311,12 @@ class OrderModel {
         isPstExempt = true;
         pstVerificationDate = new Date();
         verifiedPstNumber = pstValResult.pstNumber;
-        calculatedPst = 0;
-        calculatedTotal = calculatedSubtotal + calculatedGst;
       }
     }
+
+    calculatedGst = taxableSubtotal * 0.05;
+    calculatedPst = isPstExempt ? 0 : taxableSubtotal * 0.07;
+    calculatedTotal = calculatedSubtotal - discountAmount + deliveryCharge + calculatedGst + calculatedPst;
 
     let targetPaymentType = payment_type || 'Credit';
     if (targetPaymentType === 'Cash' || targetPaymentType === 'cash' || targetPaymentType === 'COD' || targetPaymentType === 'cod') {
@@ -329,9 +339,10 @@ class OrderModel {
         material, door_style, grain_direction, stain_color, glass_type, glass_thickness, glass_width,
         glass_height, calculated_panel_height, calculated_panel_width, notes, user_id, custom_client_name,
         address, pincode, payment_type, measurement_type, height, width, quantity, subtotal, gst_amount,
-        pst_amount, total_amount, paid_amount, credit_amount, status, pst_number, pst_verified, pst_exempt, pst_verification_date
+        pst_amount, total_amount, paid_amount, credit_amount, status, pst_number, pst_verified, pst_exempt, pst_verification_date,
+        delivery_charge, discount_amount
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52)
       RETURNING *
     `;
 
@@ -386,6 +397,8 @@ class OrderModel {
       isPstVerified,
       isPstExempt,
       pstVerificationDate,
+      deliveryCharge.toFixed(2),
+      discountAmount.toFixed(2),
     ];
 
     const orderResult = await queryRunner.query(orderQuery, orderValues);
@@ -451,17 +464,19 @@ class OrderModel {
       const invoicePaymentStatus = creditAmount === 0 ? 'Paid' : finalPaidAmount > 0 ? 'Partial' : 'Unpaid';
 
       await queryRunner.query(
-        `INSERT INTO invoice (order_id, user_id, invoice_number, paid_amount, remaining_amount, payment_status, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (invoice_number) DO UPDATE SET paid_amount = EXCLUDED.paid_amount, remaining_amount = EXCLUDED.remaining_amount, payment_status = EXCLUDED.payment_status`,
+        `INSERT INTO invoice (order_id, user_id, invoice_number, paid_amount, remaining_amount, payment_status, status, delivery_charge, discount_amount)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (invoice_number) DO UPDATE SET paid_amount = EXCLUDED.paid_amount, remaining_amount = EXCLUDED.remaining_amount, payment_status = EXCLUDED.payment_status, delivery_charge = EXCLUDED.delivery_charge, discount_amount = EXCLUDED.discount_amount`,
         [
           newOrder.order_id,
           targetUserId,
           generatedInvoiceNumber,
-          finalPaidAmount,
-          creditAmount,
+          finalPaidAmount.toFixed(2),
+          creditAmount.toFixed(2),
           invoicePaymentStatus,
           'Issued',
+          deliveryCharge.toFixed(2),
+          discountAmount.toFixed(2),
         ]
       );
     } catch (e) {
@@ -648,6 +663,14 @@ class OrderModel {
       });
     }
 
+    const deliveryCharge = parseFloat(orderPayload.delivery_charge !== undefined ? orderPayload.delivery_charge : (orderPayload.deliveryCharge !== undefined ? orderPayload.deliveryCharge : existingOrder.delivery_charge || 0)) || 0;
+    const discountAmount = parseFloat(orderPayload.discount_amount !== undefined ? orderPayload.discount_amount : (orderPayload.discount !== undefined ? orderPayload.discount : (orderPayload.discountAmount !== undefined ? orderPayload.discountAmount : existingOrder.discount_amount || 0))) || 0;
+
+    const taxableSubtotal = Math.max(0, calculatedSubtotal - discountAmount);
+    calculatedGst = taxableSubtotal * 0.05;
+    calculatedPst = existingOrder.pst_exempt ? 0 : taxableSubtotal * 0.07;
+    calculatedTotal = calculatedSubtotal - discountAmount + deliveryCharge + calculatedGst + calculatedPst;
+
     const finalPaidAmount = parseFloat(paid_amount) || 0;
     const creditAmount = Math.max(0, calculatedTotal - finalPaidAmount);
 
@@ -663,8 +686,9 @@ class OrderModel {
         order_date = $30, delivery_date = $31, finishing = $32, color = $32, panel_profile = $33, edge_profile = $34,
         notes = $35, height = $36, width = $37, quantity = $38, subtotal = $39, gst_amount = $40,
         pst_amount = $41, total_amount = $42, paid_amount = $43, credit_amount = $44, status = $45,
+        delivery_charge = $46, discount_amount = $47,
         updated_at = CURRENT_TIMESTAMP
-      WHERE order_id = $46
+      WHERE order_id = $48
       RETURNING *
     `;
 
@@ -714,6 +738,8 @@ class OrderModel {
       finalPaidAmount.toFixed(2),
       creditAmount.toFixed(2),
       status,
+      deliveryCharge.toFixed(2),
+      discountAmount.toFixed(2),
       orderId,
     ]);
 
@@ -768,8 +794,52 @@ class OrderModel {
     // Update invoice
     const paymentStatus = creditAmount === 0 ? 'Paid' : finalPaidAmount > 0 ? 'Partial' : 'Unpaid';
     await queryRunner.query(
-      `UPDATE invoice SET user_id = $1, paid_amount = $2, remaining_amount = $3, payment_status = $4 WHERE order_id = $5`,
-      [targetUserId, finalPaidAmount, creditAmount, paymentStatus, orderId]
+      `UPDATE invoice SET user_id = $1, paid_amount = $2, remaining_amount = $3, payment_status = $4, delivery_charge = $5, discount_amount = $6 WHERE order_id = $7`,
+      [targetUserId, finalPaidAmount.toFixed(2), creditAmount.toFixed(2), paymentStatus, deliveryCharge.toFixed(2), discountAmount.toFixed(2), orderId]
+    );
+
+    return await this.findById(orderId, queryRunner);
+  }
+
+  static async updateDeliveryAndDiscount(orderId, { delivery_charge, discount_amount }, client = null) {
+    const queryRunner = client || db;
+    const existingOrder = await this.findById(orderId, queryRunner);
+    if (!existingOrder) throw new Error('Order not found');
+
+    const deliveryCharge = delivery_charge !== undefined ? (parseFloat(delivery_charge) || 0) : (parseFloat(existingOrder.delivery_charge) || 0);
+    const discountAmount = discount_amount !== undefined ? (parseFloat(discount_amount) || 0) : (parseFloat(existingOrder.discount_amount) || 0);
+
+    const subtotal = parseFloat(existingOrder.subtotal) || 0;
+    const taxableSubtotal = Math.max(0, subtotal - discountAmount);
+    const isPstExempt = Boolean(existingOrder.pst_exempt || existingOrder.customer_pst_number || existingOrder.pst_number);
+    const gstAmount = taxableSubtotal * 0.05;
+    const pstAmount = isPstExempt ? 0 : taxableSubtotal * 0.07;
+    const totalAmount = subtotal - discountAmount + deliveryCharge + gstAmount + pstAmount;
+    const paidAmount = parseFloat(existingOrder.paid_amount) || 0;
+    const creditAmount = Math.max(0, totalAmount - paidAmount);
+    const paymentStatus = creditAmount === 0 ? 'Paid' : paidAmount > 0 ? 'Partial' : 'Unpaid';
+
+    await queryRunner.query(
+      `UPDATE orders SET 
+        delivery_charge = $1, 
+        discount_amount = $2, 
+        gst_amount = $3, 
+        pst_amount = $4, 
+        total_amount = $5, 
+        credit_amount = $6, 
+        updated_at = CURRENT_TIMESTAMP 
+       WHERE order_id = $7`,
+      [deliveryCharge.toFixed(2), discountAmount.toFixed(2), gstAmount.toFixed(2), pstAmount.toFixed(2), totalAmount.toFixed(2), creditAmount.toFixed(2), orderId]
+    );
+
+    await queryRunner.query(
+      `UPDATE invoice SET 
+        delivery_charge = $1, 
+        discount_amount = $2, 
+        remaining_amount = $3, 
+        payment_status = $4 
+       WHERE order_id = $5`,
+      [deliveryCharge.toFixed(2), discountAmount.toFixed(2), creditAmount.toFixed(2), paymentStatus, orderId]
     );
 
     return await this.findById(orderId, queryRunner);

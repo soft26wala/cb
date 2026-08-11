@@ -27,6 +27,7 @@ router.get('/:id', verifyToken, OrderController.getOrderById);
 router.get('/:id/invoice', verifyToken, OrderController.getInvoiceByOrderId);
 
 router.put('/:id/status', verifyToken, OrderController.updateOrderStatus);
+router.put('/:id/delivery-discount', verifyToken, OrderController.updateDeliveryAndDiscount);
 router.post(
   '/:id/payment',
   verifyToken,
