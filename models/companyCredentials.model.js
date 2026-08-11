@@ -1,25 +1,44 @@
 const db = require('../config/db');
 
 const DEFAULT_CREDENTIALS = {
-  company_name: 'GB Cabinet Doors Ltd.',
-  business_number: '987654321 BC0001',
-  gst_number: '12345 6789 RT0001',
-  pst_number: 'PST-1001-8849',
-  company_email: 'info@gbcabinetdoors.ca',
-  company_phone: '(604) 503-3711',
-  website: 'https://gbcabinetdoors.ca',
-  address_line1: '12885 85 Ave',
-  address_line2: 'Unit 104',
+  company_name: 'Cabinet Doors Ltd.',
+  business_number: '85507 7420 BC0001',
+  gst_number: '85507 7420 BC0001',
+  pst_number: 'PST-1014-0576',
+  company_email: 'info@newsurreycabinetdoors.com',
+  company_phone: '(778) 000-0000',
+  website: 'www.newsurreycabinetdoors.com',
+  address_line1: 'Surrey',
+  address_line2: '',
   city: 'Surrey',
   province: 'BC',
-  postal_code: 'V3W 0K8',
+  postal_code: 'V3W 1N2',
   country: 'Canada',
   invoice_prefix: 'INV',
   invoice_footer: 'Thank you for your business. Payment terms: Net 30 days.',
   payment_terms: 'Net 30 Days. Payments accepted via Interac e-Transfer, Credit Card, or Direct Deposit.',
-  thank_you_message: 'Thank you for choosing GB Cabinet Doors Ltd. We appreciate your business!',
+  thank_you_message: 'Thank you for choosing Cabinet Doors Ltd. We appreciate your business!',
   logo_url: '',
+  bg_color: 'rgb(15, 23, 42)', // Default dark background slate-900 (#0f172a)
+  text_color: 'rgb(255, 255, 255)', // Default text color pure white (#ffffff)
+  headline_color: 'rgb(255, 255, 255)', // Default headline/title text (#ffffff)
+  card_bg_color: 'rgb(30, 41, 59)', // Default box/card background slate-800 (#1e293b)
+  border_color: 'rgb(51, 65, 85)', // Default box border slate-700 (#334155)
 };
+
+// Ensure all 5 color columns exist in company_credentials
+const ensureColorColumns = async () => {
+  try {
+    await db.query(`ALTER TABLE company_credentials ADD COLUMN IF NOT EXISTS bg_color VARCHAR(50) DEFAULT 'rgb(15, 23, 42)';`);
+    await db.query(`ALTER TABLE company_credentials ADD COLUMN IF NOT EXISTS text_color VARCHAR(50) DEFAULT 'rgb(245, 158, 11)';`);
+    await db.query(`ALTER TABLE company_credentials ADD COLUMN IF NOT EXISTS headline_color VARCHAR(50) DEFAULT 'rgb(255, 255, 255)';`);
+    await db.query(`ALTER TABLE company_credentials ADD COLUMN IF NOT EXISTS card_bg_color VARCHAR(50) DEFAULT 'rgb(30, 41, 59)';`);
+    await db.query(`ALTER TABLE company_credentials ADD COLUMN IF NOT EXISTS border_color VARCHAR(50) DEFAULT 'rgb(51, 65, 85)';`);
+  } catch (e) {
+    // Non-blocking
+  }
+};
+ensureColorColumns();
 
 class CompanyCredentialsModel {
   static async getCredentials() {
@@ -95,6 +114,11 @@ class CompanyCredentialsModel {
       payment_terms: data.payment_terms !== undefined ? data.payment_terms : current.payment_terms,
       thank_you_message: data.thank_you_message !== undefined ? data.thank_you_message : current.thank_you_message,
       logo_url: data.logo_url !== undefined ? data.logo_url : current.logo_url,
+      bg_color: data.bg_color !== undefined ? data.bg_color : (current.bg_color || DEFAULT_CREDENTIALS.bg_color),
+      text_color: data.text_color !== undefined ? data.text_color : (current.text_color || DEFAULT_CREDENTIALS.text_color),
+      headline_color: data.headline_color !== undefined ? data.headline_color : (current.headline_color || DEFAULT_CREDENTIALS.headline_color),
+      card_bg_color: data.card_bg_color !== undefined ? data.card_bg_color : (current.card_bg_color || DEFAULT_CREDENTIALS.card_bg_color),
+      border_color: data.border_color !== undefined ? data.border_color : (current.border_color || DEFAULT_CREDENTIALS.border_color),
     };
 
     const updateQuery = `
@@ -118,8 +142,13 @@ class CompanyCredentialsModel {
         payment_terms = $16,
         thank_you_message = $17,
         logo_url = $18,
+        bg_color = $19,
+        text_color = $20,
+        headline_color = $21,
+        card_bg_color = $22,
+        border_color = $23,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $19
+      WHERE id = $24
       RETURNING *
     `;
 
@@ -142,6 +171,11 @@ class CompanyCredentialsModel {
       updatedData.payment_terms,
       updatedData.thank_you_message,
       updatedData.logo_url,
+      updatedData.bg_color,
+      updatedData.text_color,
+      updatedData.headline_color,
+      updatedData.card_bg_color,
+      updatedData.border_color,
       current.id,
     ];
 

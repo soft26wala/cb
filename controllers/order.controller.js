@@ -55,10 +55,7 @@ class OrderController {
     try {
       await client.query('BEGIN');
 
-      const effectiveUserId =
-        (req.user && req.user.id)
-          ? req.user.id
-          : (req.cookies?.userId || req.body?.user_id || null);
+      const effectiveUserId = req.body.user_id || req.body.client_id || (req.user && req.user.id ? req.user.id : null);
 
       const orderPayload = {
         ...req.body,
@@ -74,7 +71,7 @@ class OrderController {
         action: 'INSERT',
         tableName: 'orders',
         recordId: newOrder.order_id,
-        newData: { order_id: newOrder.order_id, total_amount: newOrder.total_amount, payment_type: newOrder.payment_type },
+        newData: { order_id: newOrder.order_id, total_amount: newOrder.total_amount, order_number: newOrder.order_number },
         ipAddress: req.ip,
       }).catch(() => {});
 
@@ -87,14 +84,45 @@ class OrderController {
     }
   }
 
+  static async updateOrder(req, res, next) {
+    const client = await db.getClient();
+    try {
+      await client.query('BEGIN');
+
+      const { id } = req.params;
+      const updatedOrder = await OrderModel.updateOrder(id, req.body, client);
+
+      await client.query('COMMIT');
+
+      await recordHistory({
+        userId: req.user ? req.user.id : null,
+        action: 'UPDATE',
+        tableName: 'orders',
+        recordId: id,
+        newData: { order_id: id, status: updatedOrder.status, total_amount: updatedOrder.total_amount },
+        ipAddress: req.ip,
+      }).catch(() => {});
+
+      return successResponse(res, 'Order updated successfully', updatedOrder);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      next(error);
+    } finally {
+      client.release();
+    }
+  }
+
   static async getOrders(req, res, next) {
     try {
-      const { userId, status, limit, offset } = req.query;
-      let filterUserId = userId || (req.user && req.user.id ? req.user.id : null) || (req.cookies?.userId || null);
+      const { userId, status, search, categoryId, productId, unit, limit, offset } = req.query;
 
       const orders = await OrderModel.findAll({
-        userId: filterUserId,
+        userId: userId || null,
         status,
+        search,
+        categoryId,
+        productId,
+        unit,
         limit: parseInt(limit, 10) || 100,
         offset: parseInt(offset, 10) || 0,
       });

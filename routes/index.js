@@ -26,9 +26,6 @@ router.use('/company-credentials', companyCredentialsRoutes);
 router.use('/company-credential', companyCredentialsRoutes);
 router.use('/credentials', companyCredentialsRoutes);
 
-router.use('/awards', awardRoutes);
-router.use('/award', awardRoutes);
-router.use('/accolades', awardRoutes);
 router.use('/auth', authRoutes);
 router.use('/', authRoutes);
 router.use('/users', userRoutes);

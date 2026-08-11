@@ -5,6 +5,21 @@ const { recordHistory } = require('../services/audit.service');
 const { uploadToCloudinaryBuffer } = require('../services/cloudinary.service');
 
 class UserController {
+  static async getClients(req, res, next) {
+    try {
+      const { search, role, limit, offset } = req.query;
+      const clients = await UserModel.findClients({
+        search,
+        role,
+        limit: parseInt(limit, 10) || 100,
+        offset: parseInt(offset, 10) || 0,
+      });
+      return successResponse(res, 'Clients fetched successfully', clients);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   static async getUsers(req, res, next) {
     try {
       const { search, role, status, limit, offset } = req.query;
@@ -36,23 +51,31 @@ class UserController {
 
   static async createUser(req, res, next) {
     try {
-      const { name, mobile_number, username, email, password, role, status } = req.body;
+      const { name, company_name, mobile_number, username, email, password, role, status } = req.body;
 
       if (role && role.toLowerCase() === 'admin' && req.user?.role !== 'admin') {
         return errorResponse(res, 'Only administrators can assign the admin role.', null, 403);
       }
 
-      const existingEmail = await UserModel.findByEmail(email);
-      if (existingEmail) {
-        return errorResponse(res, 'Email already exists', null, 400);
+      const finalUsername = username || (name ? name.toLowerCase().replace(/[^a-z0-9]/g, '') + Math.floor(100 + Math.random() * 900) : 'user_' + Date.now());
+      const finalEmail = email || `${finalUsername}@client.local`;
+
+      if (email) {
+        const existingEmail = await UserModel.findByEmail(email);
+        if (existingEmail) {
+          return errorResponse(res, 'Email already exists', null, 400);
+        }
       }
 
-      const existingUsername = await UserModel.findByUsername(username);
-      if (existingUsername) {
-        return errorResponse(res, 'Username already exists', null, 400);
+      if (username) {
+        const existingUsername = await UserModel.findByUsername(username);
+        if (existingUsername) {
+          return errorResponse(res, 'Username already exists', null, 400);
+        }
       }
 
-      const hashedPassword = await bcrypt.hash(password, 10);
+      const rawPassword = password || 'ClientSecret@2026';
+      const hashedPassword = await bcrypt.hash(rawPassword, 10);
       let profileImage = null;
       if (req.file) {
         const cloudRes = await uploadToCloudinaryBuffer(req.file.buffer, 'gb_cabinet_doors_profiles');
@@ -60,10 +83,11 @@ class UserController {
       }
 
       const newUser = await UserModel.create({
-        name,
-        mobile_number,
-        username,
-        email,
+        name: name || company_name || 'Valued Client',
+        company_name: company_name || null,
+        mobile_number: mobile_number || null,
+        username: finalUsername,
+        email: finalEmail,
         password: hashedPassword,
         profile_image: profileImage,
         role: role || 'user',

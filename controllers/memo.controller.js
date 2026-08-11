@@ -82,7 +82,7 @@ const updateMemoStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    const allowed = ['Pending', 'Approved', 'Rejected', 'Resolved'];
+    const allowed = ['Pending', 'Credit', 'Approved', 'Rejected', 'Resolved'];
     if (!allowed.includes(status)) {
       return errorResponse(res, `Invalid memo status. Allowed: ${allowed.join(', ')}`, null, 400);
     }

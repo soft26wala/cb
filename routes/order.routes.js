@@ -12,15 +12,13 @@ router.post('/verify-pst', OrderController.verifyPstNumber);
 router.post(
   '/',
   verifyToken,
-  [
-    body('address').notEmpty().withMessage('Delivery address is required'),
-    body('pincode').notEmpty().withMessage('Pincode is required'),
-    body('payment_type').isIn(['Cash', 'Online', 'Credit', 'Partial', 'COD', 'cod']).withMessage('Valid payment_type required'),
-    body('measurement_type').isIn(['Sqft', 'Sqin', 'Sqm']).withMessage('Valid measurement_type required'),
-    body('items').isArray({ min: 1 }).withMessage('Order items array is required'),
-  ],
-  validate,
   OrderController.createOrder
+);
+
+router.put(
+  '/:id',
+  verifyToken,
+  OrderController.updateOrder
 );
 
 router.get('/', verifyToken, OrderController.getOrders);

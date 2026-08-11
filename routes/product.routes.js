@@ -18,7 +18,7 @@ router.use(verifyToken, isAdmin);
 
 const productValidation = [
   body('product_name').notEmpty().withMessage('Product name is required'),
-  body('sell_price').isNumeric().withMessage('Valid sell price is required'),
+  body('sell_price').optional(),
 ];
 
 router.post('/', uploadMultipleProductImages, productValidation, validate, ProductController.createProduct);

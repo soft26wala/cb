@@ -8,7 +8,8 @@ const { uploadSingle } = require('../middleware/upload.middleware');
 
 const router = express.Router();
 
-// GET /api/users or /api/user
+// GET /api/users, /api/user or /api/users/clients
+router.get('/clients', verifyToken, UserController.getClients);
 router.get('/', verifyToken, isAdmin, UserController.getUsers);
 router.get('/users', verifyToken, isAdmin, UserController.getUsers);
 router.get('/user', verifyToken, isAdmin, UserController.getUsers);
@@ -16,15 +17,8 @@ router.get('/user', verifyToken, isAdmin, UserController.getUsers);
 router.get('/:id', verifyToken, UserController.getUserById);
 router.get('/user/:id', verifyToken, UserController.getUserById);
 
-const createUserValidation = [
-  body('name').notEmpty().withMessage('Name is required'),
-  body('username').notEmpty().withMessage('Username is required'),
-  body('email').isEmail().withMessage('Valid email is required'),
-  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
-];
-
-router.post('/', verifyToken, isAdmin, uploadSingle, createUserValidation, validate, UserController.createUser);
-router.post('/user', verifyToken, isAdmin, uploadSingle, createUserValidation, validate, UserController.createUser);
+router.post('/', verifyToken, isAdmin, uploadSingle, UserController.createUser);
+router.post('/user', verifyToken, isAdmin, uploadSingle, UserController.createUser);
 
 router.put('/:id', verifyToken, isAdmin, uploadSingle, UserController.updateUser);
 router.put('/user/:id', verifyToken, isAdmin, uploadSingle, UserController.updateUser);

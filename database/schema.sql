@@ -28,15 +28,13 @@ CREATE TABLE IF NOT EXISTS category (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- PRODUCT TABLE
+-- PRODUCT TABLE (Prices are stored exclusively in user_prices table)
 CREATE TABLE IF NOT EXISTS products (
     p_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     category_id UUID REFERENCES category(category_id) ON DELETE SET NULL,
     product_name VARCHAR(200) NOT NULL,
     product_description TEXT,
     buy_price NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
-    sell_price NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
-    custom_price NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     gst_percent NUMERIC(5, 2) NOT NULL DEFAULT 5.00,
     pst_percent NUMERIC(5, 2) NOT NULL DEFAULT 7.00,
     stock INT NOT NULL DEFAULT 0,
@@ -44,7 +42,8 @@ CREATE TABLE IF NOT EXISTS products (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
-ALTER TABLE products ADD COLUMN IF NOT EXISTS custom_price NUMERIC(12, 2) NOT NULL DEFAULT 0.00;
+ALTER TABLE products DROP COLUMN IF EXISTS sell_price CASCADE;
+ALTER TABLE products DROP COLUMN IF EXISTS custom_price CASCADE;
 
 -- PRODUCT IMAGE TABLE
 CREATE TABLE IF NOT EXISTS product_images (
@@ -89,6 +88,83 @@ CREATE TABLE IF NOT EXISTS orders (
     pst_verified BOOLEAN DEFAULT FALSE,
     pst_exempt BOOLEAN DEFAULT FALSE,
     pst_verification_date TIMESTAMP WITH TIME ZONE,
+    order_number VARCHAR(100),
+    po_number VARCHAR(100),
+    order_date DATE DEFAULT CURRENT_DATE,
+    delivery_date DATE,
+    finishing VARCHAR(150),
+    panel_profile VARCHAR(150),
+    edge_profile VARCHAR(150),
+    measurement_unit VARCHAR(10) DEFAULT 'INCH',
+    rail_size NUMERIC(12, 3) DEFAULT 2.250,
+    stile_size NUMERIC(12, 3) DEFAULT 2.250,
+    door_thickness NUMERIC(10, 3) DEFAULT 0.750,
+    panel_thickness NUMERIC(10, 3) DEFAULT 0.250,
+    wood_species VARCHAR(150),
+    material VARCHAR(150),
+    door_style VARCHAR(150),
+    grain_direction VARCHAR(100),
+    stain_color VARCHAR(150),
+    glass_type VARCHAR(150),
+    glass_thickness NUMERIC(10, 3),
+    hinge_prep VARCHAR(150),
+    lock_bore_prep VARCHAR(150),
+    handing VARCHAR(50),
+    jamb_size VARCHAR(100),
+    custom_notes TEXT,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS door_height NUMERIC(12, 3) DEFAULT 80.000;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS door_width NUMERIC(12, 3) DEFAULT 36.000;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS stile_size NUMERIC(12, 3) DEFAULT 2.250;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS additional_rail_enabled BOOLEAN DEFAULT FALSE;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS additional_rail_size NUMERIC(12, 3) DEFAULT 2.250;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS additional_rail_position VARCHAR(150);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS door_thickness NUMERIC(10, 3) DEFAULT 0.750;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS panel_thickness NUMERIC(10, 3) DEFAULT 0.250;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS wood_species VARCHAR(150);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS material VARCHAR(150) DEFAULT 'Solid Wood';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS door_style VARCHAR(150);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS grain_direction VARCHAR(100);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS stain_color VARCHAR(150);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS glass_type VARCHAR(150);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS glass_thickness NUMERIC(10, 3);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS glass_width NUMERIC(10, 3);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS glass_height NUMERIC(10, 3);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS hinge_prep VARCHAR(150);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS lock_bore_prep VARCHAR(150);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS handing VARCHAR(50);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS jamb_size VARCHAR(100);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS custom_notes TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS calculated_panel_height NUMERIC(12, 3);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS calculated_panel_width NUMERIC(12, 3);
+
+-- ORDER SIZING ITEMS (DYNAMIC CUT LIST & SIZING ROWS)
+CREATE TABLE IF NOT EXISTS order_sizing_items (
+    sizing_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    order_id UUID NOT NULL REFERENCES orders(order_id) ON DELETE CASCADE,
+    category_id UUID REFERENCES category(category_id) ON DELETE SET NULL,
+    product_id UUID REFERENCES products(p_id) ON DELETE SET NULL,
+    description TEXT,
+    quantity INT NOT NULL DEFAULT 1,
+    door_height NUMERIC(12, 3) NOT NULL DEFAULT 0.000,
+    door_width NUMERIC(12, 3) NOT NULL DEFAULT 0.000,
+    door_height_text VARCHAR(50),
+    door_width_text VARCHAR(50),
+    area NUMERIC(12, 4) DEFAULT 0,
+    price NUMERIC(12, 2) DEFAULT 0,
+    total NUMERIC(12, 2) DEFAULT 0,
+    panel_height NUMERIC(12, 3) NOT NULL DEFAULT 0.000,
+    panel_width NUMERIC(12, 3) NOT NULL DEFAULT 0.000,
+    stile_length NUMERIC(12, 3) NOT NULL DEFAULT 0.000,
+    stile_quantity INT NOT NULL DEFAULT 0,
+    rail_length NUMERIC(12, 3) NOT NULL DEFAULT 0.000,
+    rail_quantity INT NOT NULL DEFAULT 0,
+    measurement_unit VARCHAR(10) DEFAULT 'INCH',
+    sort_order INT DEFAULT 0,
+    notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

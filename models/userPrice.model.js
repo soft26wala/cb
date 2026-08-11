@@ -29,9 +29,9 @@ class UserPriceModel {
         up.price_id,
         $1::uuid AS user_id,
         p.p_id AS product_id,
-        up.custom_price,
-        p.sell_price AS default_sell_price,
-        p.sell_price,
+        COALESCE(up.custom_price, (SELECT custom_price FROM user_prices WHERE product_id = p.p_id LIMIT 1), 0.00) AS custom_price,
+        COALESCE(up.custom_price, (SELECT custom_price FROM user_prices WHERE product_id = p.p_id LIMIT 1), 0.00) AS default_sell_price,
+        COALESCE(up.custom_price, (SELECT custom_price FROM user_prices WHERE product_id = p.p_id LIMIT 1), 0.00) AS sell_price,
         up.created_at,
         up.updated_at,
 

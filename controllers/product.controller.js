@@ -7,13 +7,13 @@ class ProductController {
   static async getProducts(req, res, next) {
     try {
       const { search, category_id, status, user_id, limit, offset } = req.query;
-      const effectiveUserId = req.user?.id || req.cookies?.userId || user_id || null;
+      const effectiveUserId = user_id || null;
       const products = await ProductModel.findAll({
         search,
         category_id,
         status,
         user_id: effectiveUserId,
-        limit: parseInt(limit, 10) || 50,
+        limit: parseInt(limit, 10) || 100,
         offset: parseInt(offset, 10) || 0,
       });
       return successResponse(res, 'Products fetched successfully', products);
@@ -39,8 +39,8 @@ class ProductController {
 
   static async createProduct(req, res, next) {
     try {
-      const { category_id, product_name, product_description, buy_price, sell_price, custom_price, gst_percent, pst_percent, stock, status } = req.body;
-      const effectiveCustomPrice = parseFloat(custom_price ?? sell_price ?? 0);
+      const { category_id, product_name, product_description, buy_price, sell_price, custom_price, price, gst_percent, pst_percent, stock, status } = req.body;
+      const effectiveCustomPrice = parseFloat(custom_price ?? sell_price ?? price ?? 0);
 
       let imagesData = [];
       if (req.files && Array.isArray(req.files) && req.files.length > 0) {
@@ -70,7 +70,7 @@ class ProductController {
       }
 
       const newProduct = await ProductModel.create(
-        { category_id, product_name, product_description, buy_price, sell_price: effectiveCustomPrice, custom_price: effectiveCustomPrice, gst_percent, pst_percent, stock, status },
+        { category_id, product_name, product_description, buy_price, custom_price: effectiveCustomPrice, gst_percent, pst_percent, stock, status },
         imagesData
       );
 

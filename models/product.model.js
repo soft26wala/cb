@@ -6,17 +6,27 @@ const isUUID = (str) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
 class ProductModel {
+  static async initTable() {
+    try {
+      await db.query(`ALTER TABLE products DROP COLUMN IF EXISTS sell_price CASCADE;`);
+      await db.query(`ALTER TABLE products DROP COLUMN IF EXISTS custom_price CASCADE;`);
+    } catch (e) {
+      console.warn('Auto column drop note:', e.message);
+    }
+  }
+
   static async create(productData, imagesData = [], client = null) {
+    await this.initTable();
     const queryRunner = client || db;
-    const { category_id, product_name, product_description, buy_price, sell_price, custom_price, gst_percent, pst_percent, stock, status = 'active' } = productData;
-    const effectiveCustomPrice = parseFloat(custom_price ?? sell_price ?? 0);
+    const { category_id, product_name, product_description, buy_price, sell_price, custom_price, price, gst_percent, pst_percent, stock, status = 'active' } = productData;
+    const effectivePrice = parseFloat(custom_price ?? sell_price ?? price ?? 0);
 
     const query = `
-      INSERT INTO products (category_id, product_name, product_description, buy_price, sell_price, custom_price, gst_percent, pst_percent, stock, status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      INSERT INTO products (category_id, product_name, product_description, buy_price, gst_percent, pst_percent, stock, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *
     `;
-    const values = [category_id, product_name, product_description, buy_price || 0, effectiveCustomPrice, effectiveCustomPrice, gst_percent || 5, pst_percent || 7, stock || 0, status];
+    const values = [category_id, product_name, product_description, buy_price || 0, gst_percent || 5, pst_percent || 7, stock || 0, status];
 
     const result = await queryRunner.query(query, values);
     const newProduct = result.rows[0];
@@ -36,15 +46,15 @@ class ProductModel {
       }
     }
 
-    // Auto populate user_prices for all existing users with effectiveCustomPrice
+    // Populate user_prices for all existing users using effectivePrice
     const usersResult = await queryRunner.query('SELECT id FROM users');
     if (usersResult.rows.length > 0) {
       for (const user of usersResult.rows) {
         await queryRunner.query(
           `INSERT INTO user_prices (user_id, product_id, custom_price)
            VALUES ($1, $2, $3)
-           ON CONFLICT (user_id, product_id) DO NOTHING`,
-          [user.id, newProduct.p_id, effectiveCustomPrice]
+           ON CONFLICT (user_id, product_id) DO UPDATE SET custom_price = EXCLUDED.custom_price`,
+          [user.id, newProduct.p_id, effectivePrice]
         );
       }
     }
@@ -53,6 +63,7 @@ class ProductModel {
   }
 
   static async findById(id, userId = null, client = null) {
+    await this.initTable();
     const queryRunner = client || db;
     let productQuery = "";
     let params = [id];
@@ -68,8 +79,8 @@ class ProductModel {
         SELECT p.p_id, p.category_id, p.product_name, p.product_description, p.buy_price,
                p.gst_percent, p.pst_percent, p.stock, p.status, p.created_at, p.updated_at,
                c.category_name,
-               COALESCE(NULLIF(up.custom_price, 0), NULLIF(p.custom_price, 0), p.sell_price, 0.00) as custom_price,
-               COALESCE(NULLIF(up.custom_price, 0), NULLIF(p.custom_price, 0), p.sell_price, 0.00) as sell_price
+               COALESCE(up.custom_price, (SELECT custom_price FROM user_prices WHERE product_id = p.p_id LIMIT 1), 0.00) as custom_price,
+               COALESCE(up.custom_price, (SELECT custom_price FROM user_prices WHERE product_id = p.p_id LIMIT 1), 0.00) as sell_price
         FROM products p
         LEFT JOIN category c ON p.category_id = c.category_id
         LEFT JOIN user_prices up ON (p.p_id = up.product_id AND up.user_id = $2)
@@ -81,8 +92,8 @@ class ProductModel {
         SELECT p.p_id, p.category_id, p.product_name, p.product_description, p.buy_price,
                p.gst_percent, p.pst_percent, p.stock, p.status, p.created_at, p.updated_at,
                c.category_name,
-               COALESCE(NULLIF(p.custom_price, 0), p.sell_price, 0.00) as custom_price,
-               COALESCE(NULLIF(p.custom_price, 0), p.sell_price, 0.00) as sell_price
+               COALESCE((SELECT custom_price FROM user_prices WHERE product_id = p.p_id LIMIT 1), 0.00) as custom_price,
+               COALESCE((SELECT custom_price FROM user_prices WHERE product_id = p.p_id LIMIT 1), 0.00) as sell_price
         FROM products p
         LEFT JOIN category c ON p.category_id = c.category_id
         WHERE p.p_id::text = $1 OR p.product_name ILIKE $1
@@ -106,10 +117,11 @@ class ProductModel {
     }
   }
 
-  static async findAll({ search, category_id, status, user_id, limit = 50, offset = 0 }) {
+  static async findAll({ search, category_id, status, user_id, limit = 100, offset = 0 }) {
+    await this.initTable();
     const params = [];
     let userJoin = "";
-    let selectPrice = "COALESCE(NULLIF(p.custom_price, 0), p.sell_price, 0.00) as custom_price, COALESCE(NULLIF(p.custom_price, 0), p.sell_price, 0.00) as sell_price";
+    let priceField = "";
 
     let validUserUuid = isUUID(user_id) ? user_id : null;
     if (!validUserUuid && user_id && user_id !== 'me' && user_id !== 'undefined' && user_id !== 'null') {
@@ -120,13 +132,13 @@ class ProductModel {
     if (validUserUuid) {
       params.push(validUserUuid);
       userJoin = `LEFT JOIN user_prices up ON (p.p_id = up.product_id AND up.user_id = $${params.length})`;
-      selectPrice = "COALESCE(NULLIF(up.custom_price, 0), NULLIF(p.custom_price, 0), p.sell_price, 0.00) as custom_price, COALESCE(NULLIF(up.custom_price, 0), NULLIF(p.custom_price, 0), p.sell_price, 0.00) as sell_price";
+      priceField = `, COALESCE(up.custom_price, 0.00) as custom_price, COALESCE(up.custom_price, 0.00) as sell_price`;
     }
 
     let query = `
       SELECT p.p_id, p.category_id, p.product_name, p.product_description, p.buy_price,
              p.gst_percent, p.pst_percent, p.stock, p.status, p.created_at, p.updated_at,
-             c.category_name, ${selectPrice},
+             c.category_name ${priceField},
         COALESCE(json_agg(json_build_object('image_id', pi.image_id, 'image_url', pi.image_url, 'image_public_id', pi.image_public_id)) FILTER (WHERE pi.image_id IS NOT NULL), '[]') as images
       FROM products p
       LEFT JOIN category c ON p.category_id = c.category_id
@@ -151,13 +163,16 @@ class ProductModel {
       query += ` AND p.status = $${params.length}`;
     }
 
-    const groupCols = validUserUuid ? "p.p_id, c.category_name, up.custom_price" : "p.p_id, c.category_name";
+    const groupCols = validUserUuid
+      ? "p.p_id, p.category_id, p.product_name, p.product_description, p.buy_price, p.gst_percent, p.pst_percent, p.stock, p.status, p.created_at, p.updated_at, c.category_name, up.custom_price"
+      : "p.p_id, p.category_id, p.product_name, p.product_description, p.buy_price, p.gst_percent, p.pst_percent, p.stock, p.status, p.created_at, p.updated_at, c.category_name";
+
     query += ` GROUP BY ${groupCols} ORDER BY p.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     params.push(limit, offset);
 
     try {
       const result = await db.query(query, params);
-      return result.rows;
+      return result.rows || [];
     } catch (err) {
       console.error("Error in ProductModel.findAll:", err.message);
       return [];
@@ -165,9 +180,10 @@ class ProductModel {
   }
 
   static async update(id, productData, imagesData = null, client = null) {
+    await this.initTable();
     const queryRunner = client || db;
-    const { category_id, product_name, product_description, buy_price, sell_price, custom_price, gst_percent, pst_percent, stock, status } = productData;
-    const effectiveCustomPrice = custom_price !== undefined ? custom_price : sell_price;
+    const { category_id, product_name, product_description, buy_price, sell_price, custom_price, price, gst_percent, pst_percent, stock, status } = productData;
+    const effectivePrice = custom_price !== undefined ? custom_price : (sell_price !== undefined ? sell_price : price);
 
     const query = `
       UPDATE products
@@ -175,20 +191,32 @@ class ProductModel {
           product_name = COALESCE($2, product_name),
           product_description = COALESCE($3, product_description),
           buy_price = COALESCE($4, buy_price),
-          sell_price = COALESCE($5, sell_price),
-          custom_price = COALESCE($5, custom_price),
-          gst_percent = COALESCE($6, gst_percent),
-          pst_percent = COALESCE($7, pst_percent),
-          stock = COALESCE($8, stock),
-          status = COALESCE($9, status),
+          gst_percent = COALESCE($5, gst_percent),
+          pst_percent = COALESCE($6, pst_percent),
+          stock = COALESCE($7, stock),
+          status = COALESCE($8, status),
           updated_at = CURRENT_TIMESTAMP
-      WHERE p_id = $10
+      WHERE p_id = $9
       RETURNING *
     `;
 
-    const values = [category_id, product_name, product_description, buy_price, effectiveCustomPrice, gst_percent, pst_percent, stock, status, id];
+    const values = [category_id, product_name, product_description, buy_price, gst_percent, pst_percent, stock, status, id];
     const result = await queryRunner.query(query, values);
     if (result.rows.length === 0) return null;
+
+    if (effectivePrice !== undefined && effectivePrice !== null) {
+      const usersResult = await queryRunner.query('SELECT id FROM users');
+      if (usersResult.rows.length > 0) {
+        for (const user of usersResult.rows) {
+          await queryRunner.query(
+            `INSERT INTO user_prices (user_id, product_id, custom_price)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (user_id, product_id) DO UPDATE SET custom_price = EXCLUDED.custom_price, updated_at = CURRENT_TIMESTAMP`,
+            [user.id, id, parseFloat(effectivePrice)]
+          );
+        }
+      }
+    }
 
     if (imagesData && imagesData.length > 0) {
       // 1. Delete old Cloudinary images
@@ -220,7 +248,7 @@ class ProductModel {
   }
 
   static async delete(id) {
-    // 1. Delete image files from Cloudinary using stored public_id
+    await this.initTable();
     try {
       const imagesRes = await db.query('SELECT image_public_id FROM product_images WHERE p_id = $1', [id]);
       if (imagesRes.rows && imagesRes.rows.length > 0) {
@@ -234,7 +262,6 @@ class ProductModel {
       console.warn(`Cloudinary deletion error during product delete [${id}]:`, err.message);
     }
 
-    // 2. Delete database product record
     const query = `DELETE FROM products WHERE p_id = $1 RETURNING p_id`;
     const result = await db.query(query, [id]);
     return result.rows[0];
