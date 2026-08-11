@@ -21,6 +21,7 @@ const defaultShortcutsList = [
   { page_name: 'GST / PST', page_route: '/gst-pst', description: 'Navigate to Tax Rates & Calculations', shortcut_key: 'Alt+G', category: 'Navigation', is_active: true },
   { page_name: 'Audit Logs', page_route: '/history', description: 'Navigate to System Audit Logs & History', shortcut_key: 'Alt+H', category: 'Navigation', is_active: true },
   { page_name: 'Delivery Memos', page_route: '/memos', description: 'Navigate to Delivery Memos & COD Returns', shortcut_key: 'Alt+V', category: 'Navigation', is_active: true },
+  { page_name: 'Create Memo', page_route: '/memos?openAdd=true', description: 'Open Create New Memo Form Modal', shortcut_key: 'Shift+M', category: 'Action', is_active: true },
   { page_name: 'Settings', page_route: '/settings', description: 'Navigate to System Settings & Shortcuts Manager', shortcut_key: 'Alt+X', category: 'Navigation', is_active: true },
 ];
 

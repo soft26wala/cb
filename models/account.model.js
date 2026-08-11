@@ -101,9 +101,16 @@ class AccountModel {
     try {
       const query = `
         SELECT o.order_id, o.user_id, COALESCE(u.name, 'Valued Client') as customer_name, COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, u.mobile_number,
-               o.total_amount as original_amount, o.paid_amount, o.credit_amount, o.payment_type, o.status, o.created_at
+               o.total_amount as original_amount, o.paid_amount, o.credit_amount, o.payment_type, o.status, o.created_at,
+               m.credit_percentage, m.credit_amount as memo_credit_amount, m.gst_reduced, m.pst_reduced, m.memo_number
         FROM orders o
         LEFT JOIN users u ON o.user_id = u.id
+        LEFT JOIN (
+          SELECT DISTINCT ON (order_id) order_id, credit_percentage, credit_amount, gst_reduced, pst_reduced, memo_number
+          FROM delivery_memos
+          WHERE order_id IS NOT NULL
+          ORDER BY order_id, created_at DESC
+        ) m ON o.order_id = m.order_id
         WHERE o.credit_amount > 0 AND o.status != 'Cancelled'
         ORDER BY o.created_at DESC
       `;
