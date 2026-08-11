@@ -9,7 +9,7 @@ class ReportModel {
       SELECT
         COUNT(o.order_id) as total_orders,
         COALESCE(SUM(o.subtotal), 0.00) as total_subtotal,
-        GREATEST(0.00, COALESCE(SUM(o.gst_amount), 0.00) - COALESCE((SELECT SUM(COALESCE(amount_lost, 0) * 0.05) FROM delivery_memos WHERE status = 'Credit'), 0.00)) as total_gst_collected,
+        GREATEST(0.00, COALESCE(SUM(o.gst_amount), 0.00) - COALESCE((SELECT SUM(COALESCE(gst_reduced, amount_lost * 0.05)) FROM delivery_memos WHERE status = 'Credit' OR status = 'Approved' OR status = 'Resolved'), 0.00)) as total_gst_collected,
         COALESCE(SUM(o.total_amount), 0.00) as total_order_amount
       FROM orders o
       WHERE ${dateCondition} AND o.status != 'Cancelled'
@@ -26,7 +26,7 @@ class ReportModel {
       SELECT
         COUNT(o.order_id) as total_orders,
         COALESCE(SUM(o.subtotal), 0.00) as total_subtotal,
-        COALESCE(SUM(o.pst_amount), 0.00) as total_pst_collected,
+        GREATEST(0.00, COALESCE(SUM(o.pst_amount), 0.00) - COALESCE((SELECT SUM(COALESCE(pst_reduced, amount_lost * 0.07)) FROM delivery_memos WHERE status = 'Credit' OR status = 'Approved' OR status = 'Resolved'), 0.00)) as total_pst_collected,
         COALESCE(SUM(o.total_amount), 0.00) as total_order_amount
       FROM orders o
       WHERE ${dateCondition} AND o.status != 'Cancelled'

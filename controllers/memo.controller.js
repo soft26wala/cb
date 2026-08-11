@@ -14,6 +14,10 @@ const getMemos = async (req, res) => {
         photos JSONB DEFAULT '[]',
         driver_notes TEXT,
         amount_lost NUMERIC(10,2) DEFAULT 0.00,
+        credit_percentage NUMERIC(5,2) DEFAULT 100.00,
+        credit_amount NUMERIC(10,2) DEFAULT 0.00,
+        gst_reduced NUMERIC(10,2) DEFAULT 0.00,
+        pst_reduced NUMERIC(10,2) DEFAULT 0.00,
         courier_name VARCHAR(100) DEFAULT 'Standard Courier',
         status VARCHAR(20) DEFAULT 'Pending',
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -21,13 +25,18 @@ const getMemos = async (req, res) => {
       );
     `);
 
+    await db.query(`ALTER TABLE delivery_memos ADD COLUMN IF NOT EXISTS credit_percentage NUMERIC(5,2) DEFAULT 100.00;`);
+    await db.query(`ALTER TABLE delivery_memos ADD COLUMN IF NOT EXISTS credit_amount NUMERIC(10,2) DEFAULT 0.00;`);
+    await db.query(`ALTER TABLE delivery_memos ADD COLUMN IF NOT EXISTS gst_reduced NUMERIC(10,2) DEFAULT 0.00;`);
+    await db.query(`ALTER TABLE delivery_memos ADD COLUMN IF NOT EXISTS pst_reduced NUMERIC(10,2) DEFAULT 0.00;`);
+
     const countCheck = await db.query(`SELECT COUNT(*) as count FROM delivery_memos`);
     if (parseInt(countCheck.rows[0]?.count || 0, 10) === 0) {
       await db.query(`
-        INSERT INTO delivery_memos (memo_number, reason, driver_notes, amount_lost, courier_name, status)
+        INSERT INTO delivery_memos (memo_number, reason, driver_notes, amount_lost, credit_percentage, credit_amount, gst_reduced, pst_reduced, courier_name, status)
         VALUES 
-          ('MEMO-883921', 'Refused delivery due to transit corner scratch', 'Customer inspected box at doorway and requested replacement.', 185.00, 'FedEx Express', 'Pending'),
-          ('MEMO-742910', 'Damaged packaging box on arrival', 'Outer wooden crate cracked during transport offloading.', 95.00, 'UPS Ground', 'Resolved')
+          ('MEMO-883921', 'Refused delivery due to transit corner scratch', 'Customer inspected box at doorway and requested replacement.', 185.00, 100.00, 185.00, 9.25, 12.95, 'FedEx Express', 'Pending'),
+          ('MEMO-742910', 'Damaged packaging box on arrival', 'Outer wooden crate cracked during transport offloading.', 95.00, 50.00, 47.50, 2.38, 3.33, 'UPS Ground', 'Resolved')
         ON CONFLICT DO NOTHING;
       `);
     }
@@ -40,28 +49,49 @@ const getMemos = async (req, res) => {
        ORDER BY m.created_at DESC`
     );
 
-    return successResponse(res, 'Delivery memos fetched successfully', result.rows || []);
+    return successResponse(res, 'Memos fetched successfully', result.rows || []);
   } catch (error) {
-    return errorResponse(res, 'Failed to fetch delivery memos', error.message, 500);
+    return errorResponse(res, 'Failed to fetch memos', error.message, 500);
   }
 };
 
 // POST /api/memos - Create new Delivery Memo
 const createMemo = async (req, res) => {
   try {
-    const { order_id, customer_id, reason, photos, driver_notes, amount_lost, courier_name } = req.body;
+    const { order_id, customer_id, reason, photos, driver_notes, amount_lost, credit_percentage, credit_amount, courier_name, status } = req.body;
 
     if (!reason) {
-      return errorResponse(res, 'Reason is required for delivery memo', null, 400);
+      return errorResponse(res, 'Reason is required for memo', null, 400);
     }
 
     const memo_number = `MEMO-${Date.now().toString().slice(-6)}`;
     const photosJson = JSON.stringify(photos || []);
 
+    const amtVal = parseFloat(amount_lost || 0);
+    const pctVal = parseFloat(credit_percentage !== undefined ? credit_percentage : 100);
+    const credAmtVal = credit_amount !== undefined && credit_amount !== '' ? parseFloat(credit_amount) : parseFloat((amtVal * (pctVal / 100)).toFixed(2));
+    const gstRedVal = parseFloat((credAmtVal * 0.05).toFixed(2));
+    const pstRedVal = parseFloat((credAmtVal * 0.07).toFixed(2));
+    const finalStatus = status || 'Pending';
+
     const result = await db.query(
-      `INSERT INTO delivery_memos (memo_number, order_id, customer_id, reason, photos, driver_notes, amount_lost, courier_name, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Pending') RETURNING *`,
-      [memo_number, order_id || null, customer_id || null, reason, photosJson, driver_notes || '', parseFloat(amount_lost || 0), courier_name || 'Standard Courier']
+      `INSERT INTO delivery_memos (memo_number, order_id, customer_id, reason, photos, driver_notes, amount_lost, credit_percentage, credit_amount, gst_reduced, pst_reduced, courier_name, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+      [
+        memo_number,
+        order_id || null,
+        customer_id || null,
+        reason,
+        photosJson,
+        driver_notes || '',
+        amtVal,
+        pctVal,
+        credAmtVal,
+        gstRedVal,
+        pstRedVal,
+        courier_name || 'Standard Courier',
+        finalStatus,
+      ]
     );
 
     // Audit log
@@ -70,35 +100,54 @@ const createMemo = async (req, res) => {
       [req.user?.id, memo_number, JSON.stringify(result.rows[0])]
     );
 
-    return successResponse(res, 'Delivery Memo created successfully', result.rows[0], 201);
+    return successResponse(res, 'Memo created successfully', result.rows[0], 201);
   } catch (error) {
-    return errorResponse(res, 'Failed to create delivery memo', error.message, 500);
+    return errorResponse(res, 'Failed to create memo', error.message, 500);
   }
 };
 
-// PUT /api/memos/:id/status - Update memo status (Resolved, Pending, Approved, Rejected)
+// PUT /api/memos/:id/status - Update memo status and credit allocation
 const updateMemoStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, credit_percentage, credit_amount, amount_lost } = req.body;
 
     const allowed = ['Pending', 'Credit', 'Approved', 'Rejected', 'Resolved'];
-    if (!allowed.includes(status)) {
+    if (status && !allowed.includes(status)) {
       return errorResponse(res, `Invalid memo status. Allowed: ${allowed.join(', ')}`, null, 400);
     }
 
-    const result = await db.query(
-      `UPDATE delivery_memos SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE memo_id = $2 RETURNING *`,
-      [status, id]
-    );
+    // Fetch existing memo to compute credit values
+    const currentRes = await db.query(`SELECT * FROM delivery_memos WHERE memo_id = $1`, [id]);
+    if (!currentRes.rows || currentRes.rows.length === 0) {
+      return errorResponse(res, 'Memo not found', null, 404);
+    }
+    const currentMemo = currentRes.rows[0];
 
-    if (!result.rows || result.rows.length === 0) {
-      return errorResponse(res, 'Delivery memo not found', null, 404);
+    const targetStatus = status || currentMemo.status;
+    const targetAmt = amount_lost !== undefined && amount_lost !== '' ? parseFloat(amount_lost) : parseFloat(currentMemo.amount_lost || 0);
+    const targetPct = credit_percentage !== undefined && credit_percentage !== '' ? parseFloat(credit_percentage) : parseFloat(currentMemo.credit_percentage || 100);
+    
+    let targetCredAmt = currentMemo.credit_amount;
+    if (credit_amount !== undefined && credit_amount !== '') {
+      targetCredAmt = parseFloat(credit_amount);
+    } else {
+      targetCredAmt = parseFloat((targetAmt * (targetPct / 100)).toFixed(2));
     }
 
-    return successResponse(res, 'Delivery memo status updated', result.rows[0]);
+    const targetGstRed = parseFloat((targetCredAmt * 0.05).toFixed(2));
+    const targetPstRed = parseFloat((targetCredAmt * 0.07).toFixed(2));
+
+    const result = await db.query(
+      `UPDATE delivery_memos 
+       SET status = $1, amount_lost = $2, credit_percentage = $3, credit_amount = $4, gst_reduced = $5, pst_reduced = $6, updated_at = CURRENT_TIMESTAMP 
+       WHERE memo_id = $7 RETURNING *`,
+      [targetStatus, targetAmt, targetPct, targetCredAmt, targetGstRed, targetPstRed, id]
+    );
+
+    return successResponse(res, 'Memo status & credit percentage updated', result.rows[0]);
   } catch (error) {
-    return errorResponse(res, 'Failed to update delivery memo status', error.message, 500);
+    return errorResponse(res, 'Failed to update memo status', error.message, 500);
   }
 };
 
@@ -107,3 +156,4 @@ module.exports = {
   createMemo,
   updateMemoStatus,
 };
+
