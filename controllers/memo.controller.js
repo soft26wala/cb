@@ -30,17 +30,6 @@ const getMemos = async (req, res) => {
     await db.query(`ALTER TABLE delivery_memos ADD COLUMN IF NOT EXISTS gst_reduced NUMERIC(10,2) DEFAULT 0.00;`);
     await db.query(`ALTER TABLE delivery_memos ADD COLUMN IF NOT EXISTS pst_reduced NUMERIC(10,2) DEFAULT 0.00;`);
 
-    const countCheck = await db.query(`SELECT COUNT(*) as count FROM delivery_memos`);
-    if (parseInt(countCheck.rows[0]?.count || 0, 10) === 0) {
-      await db.query(`
-        INSERT INTO delivery_memos (memo_number, reason, driver_notes, amount_lost, credit_percentage, credit_amount, gst_reduced, pst_reduced, courier_name, status)
-        VALUES 
-          ('MEMO-883921', 'Refused delivery due to transit corner scratch', 'Customer inspected box at doorway and requested replacement.', 185.00, 100.00, 185.00, 9.25, 12.95, 'FedEx Express', 'Pending'),
-          ('MEMO-742910', 'Damaged packaging box on arrival', 'Outer wooden crate cracked during transport offloading.', 95.00, 50.00, 47.50, 2.38, 3.33, 'UPS Ground', 'Resolved')
-        ON CONFLICT DO NOTHING;
-      `);
-    }
-
     const result = await db.query(
       `SELECT m.*, o.order_id, COALESCE(u.name, 'Valued Client') as customer_name, COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email 
        FROM delivery_memos m 
