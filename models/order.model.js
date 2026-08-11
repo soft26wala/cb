@@ -8,6 +8,8 @@ const ensureSizingColumnsExist = async () => {
   try {
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS custom_client_name VARCHAR(255);`);
     await db.query(`ALTER TABLE orders ALTER COLUMN user_id DROP NOT NULL;`);
+    await db.query(`ALTER TABLE invoice ALTER COLUMN user_id DROP NOT NULL;`);
+    await db.query(`ALTER TABLE invoice ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Issued';`);
     await db.query(`ALTER TABLE orders DROP COLUMN IF EXISTS hinge_prep;`);
     await db.query(`ALTER TABLE orders DROP COLUMN IF EXISTS lock_bore_prep;`);
     await db.query(`ALTER TABLE orders DROP COLUMN IF EXISTS handing;`);
@@ -442,20 +444,28 @@ class OrderModel {
 
     // Auto-create invoice
     try {
+      const generatedInvoiceNumber = finalOrderNumber
+        ? (finalOrderNumber.startsWith('ORD-') ? finalOrderNumber.replace('ORD-', 'INV-') : `INV-${finalOrderNumber}`)
+        : `INV-${Date.now()}`;
+
+      const invoicePaymentStatus = creditAmount === 0 ? 'Paid' : finalPaidAmount > 0 ? 'Partial' : 'Unpaid';
+
       await queryRunner.query(
-        `INSERT INTO invoice (order_id, user_id, paid_amount, remaining_amount, payment_status, status)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
+        `INSERT INTO invoice (order_id, user_id, invoice_number, paid_amount, remaining_amount, payment_status, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (invoice_number) DO UPDATE SET paid_amount = EXCLUDED.paid_amount, remaining_amount = EXCLUDED.remaining_amount, payment_status = EXCLUDED.payment_status`,
         [
           newOrder.order_id,
           targetUserId,
+          generatedInvoiceNumber,
           finalPaidAmount,
           creditAmount,
-          creditAmount === 0 ? 'Paid' : finalPaidAmount > 0 ? 'Partial' : 'Unpaid',
+          invoicePaymentStatus,
           'Issued',
         ]
       );
     } catch (e) {
-      console.warn('Auto invoice creation warning', e);
+      console.warn('Auto invoice creation warning:', e.message);
     }
 
     return await this.findById(newOrder.order_id, queryRunner);
