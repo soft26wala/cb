@@ -6,6 +6,13 @@ const { validatePstNumber } = require('../utils/pstValidator');
 // Helper function to ensure PST & Sizing columns exist
 const ensureSizingColumnsExist = async () => {
   try {
+    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS custom_client_name VARCHAR(255);`);
+    await db.query(`ALTER TABLE orders ALTER COLUMN user_id DROP NOT NULL;`);
+    await db.query(`ALTER TABLE orders DROP COLUMN IF EXISTS hinge_prep;`);
+    await db.query(`ALTER TABLE orders DROP COLUMN IF EXISTS lock_bore_prep;`);
+    await db.query(`ALTER TABLE orders DROP COLUMN IF EXISTS handing;`);
+    await db.query(`ALTER TABLE orders DROP COLUMN IF EXISTS jamb_size;`);
+    await db.query(`ALTER TABLE orders DROP COLUMN IF EXISTS custom_notes;`);
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pst_number VARCHAR(50);`);
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pst_verified BOOLEAN DEFAULT FALSE;`);
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pst_exempt BOOLEAN DEFAULT FALSE;`);
@@ -16,6 +23,7 @@ const ensureSizingColumnsExist = async () => {
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_date DATE DEFAULT CURRENT_DATE;`);
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_date DATE;`);
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS finishing VARCHAR(150);`);
+    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS color VARCHAR(150);`);
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS panel_profile VARCHAR(150);`);
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS edge_profile VARCHAR(150);`);
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS measurement_unit VARCHAR(10) DEFAULT 'INCH';`);
@@ -30,11 +38,6 @@ const ensureSizingColumnsExist = async () => {
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS stain_color VARCHAR(150);`);
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS glass_type VARCHAR(150);`);
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS glass_thickness NUMERIC(10, 3);`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS hinge_prep VARCHAR(150);`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS lock_bore_prep VARCHAR(150);`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS handing VARCHAR(50);`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS jamb_size VARCHAR(100);`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS custom_notes TEXT;`);
     await db.query(`ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS door_height_text VARCHAR(50);`);
     await db.query(`ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS door_width_text VARCHAR(50);`);
     await db.query(`ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS area NUMERIC(12, 4) DEFAULT 0;`);
@@ -92,6 +95,8 @@ class OrderModel {
     const {
       user_id,
       client_id,
+      custom_client_name,
+      customClientName,
       address = 'Default Address',
       pincode = 'V3W 0K8',
       payment_type = 'Credit',
@@ -115,16 +120,12 @@ class OrderModel {
       glass_thickness,
       glass_width,
       glass_height,
-      hinge_prep,
-      lock_bore_prep,
-      handing,
-      jamb_size,
-      custom_notes,
       order_number,
       po_number,
       order_date = new Date(),
       delivery_date,
-      finishing = 'Raw / Unfinished',
+      color = orderPayload.color || orderPayload.finishing || orderPayload.stain_color || 'Raw / Unfinished',
+      finishing = orderPayload.color || orderPayload.finishing || 'Raw / Unfinished',
       panel_profile = 'Flat Panel',
       edge_profile = 'Standard / Square Edge',
       notes,
@@ -135,15 +136,18 @@ class OrderModel {
       pstNumber,
     } = orderPayload;
 
-    const targetUserId = user_id || client_id;
-    if (!targetUserId) {
-      throw new Error('Client (User ID) is required.');
+    const finalCustomClientName = custom_client_name || customClientName || null;
+    const targetUserId = user_id || client_id || null;
+    if (!targetUserId && (!finalCustomClientName || String(finalCustomClientName).trim() === '')) {
+      throw new Error('Client selection or Client Name is required.');
     }
 
-    // Validate User ID exists
-    const userCheck = await queryRunner.query(`SELECT id FROM users WHERE id = $1`, [targetUserId]);
-    if (userCheck.rows.length === 0) {
-      throw new Error('Selected client does not exist.');
+    if (targetUserId) {
+      // Validate User ID exists
+      const userCheck = await queryRunner.query(`SELECT id FROM users WHERE id = $1`, [targetUserId]);
+      if (userCheck.rows.length === 0) {
+        throw new Error('Selected client does not exist.');
+      }
     }
 
     // Process Sizing Items & Validate Calculations
@@ -317,16 +321,15 @@ class OrderModel {
     // Insert Order Header
     const orderQuery = `
       INSERT INTO orders (
-        order_number, po_number, order_date, delivery_date, finishing, panel_profile, edge_profile,
+        order_number, po_number, order_date, delivery_date, finishing, color, panel_profile, edge_profile,
         measurement_unit, door_height, door_width, rail_size, stile_size, additional_rail_enabled,
         additional_rail_size, additional_rail_position, door_thickness, panel_thickness, wood_species,
         material, door_style, grain_direction, stain_color, glass_type, glass_thickness, glass_width,
-        glass_height, hinge_prep, lock_bore_prep, handing, jamb_size, custom_notes, calculated_panel_height,
-        calculated_panel_width, notes, user_id, address, pincode, payment_type, measurement_type,
-        height, width, quantity, subtotal, gst_amount, pst_amount, total_amount, paid_amount, credit_amount,
-        status, pst_number, pst_verified, pst_exempt, pst_verification_date
+        glass_height, calculated_panel_height, calculated_panel_width, notes, user_id, custom_client_name,
+        address, pincode, payment_type, measurement_type, height, width, quantity, subtotal, gst_amount,
+        pst_amount, total_amount, paid_amount, credit_amount, status, pst_number, pst_verified, pst_exempt, pst_verification_date
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50)
       RETURNING *
     `;
 
@@ -336,6 +339,7 @@ class OrderModel {
       order_date || new Date(),
       delivery_date || null,
       finishing,
+      color,
       panel_profile,
       edge_profile,
       currentUnit,
@@ -357,15 +361,11 @@ class OrderModel {
       panel_profile === 'Glass Panel' && glass_thickness ? parseFloat(glass_thickness) : null,
       panel_profile === 'Glass Panel' && glass_width ? parseFloat(glass_width) : null,
       panel_profile === 'Glass Panel' && glass_height ? parseFloat(glass_height) : null,
-      hinge_prep || null,
-      lock_bore_prep || null,
-      handing || null,
-      jamb_size || null,
-      custom_notes || null,
       parseFloat(calcPanelHeightVal.toFixed(3)),
       parseFloat(calcPanelWidthVal.toFixed(3)),
       notes || null,
       targetUserId,
+      finalCustomClientName,
       address,
       pincode,
       targetPaymentType,
@@ -440,30 +440,22 @@ class OrderModel {
       }
     }
 
-    // Invoice Generation
-    const CompanyCredentialsModel = require('./companyCredentials.model');
-    const companyCreds = await CompanyCredentialsModel.getCredentials();
-    const prefix = companyCreds.invoice_prefix || 'INV';
-    const invoiceNumber = `${prefix}-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
-    const paymentStatus = creditAmount === 0 ? 'Paid' : finalPaidAmount > 0 ? 'Partial' : 'Unpaid';
-
-    await queryRunner.query(
-      `INSERT INTO invoice (order_id, user_id, invoice_number, payment_status, paid_amount, remaining_amount)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [newOrder.order_id, targetUserId, invoiceNumber, paymentStatus, finalPaidAmount, creditAmount]
-    );
-
-    // Ledger Transaction
-    if (creditAmount > 0) {
-      await addLedgerTransaction({
-        userId: targetUserId,
-        orderId: newOrder.order_id,
-        type: 'Credit',
-        amount: creditAmount,
-        paymentMethod: payment_type,
-        description: `Credit created for Order #${finalOrderNumber}`,
-        client: queryRunner,
-      });
+    // Auto-create invoice
+    try {
+      await queryRunner.query(
+        `INSERT INTO invoice (order_id, user_id, paid_amount, remaining_amount, payment_status, status)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          newOrder.order_id,
+          targetUserId,
+          finalPaidAmount,
+          creditAmount,
+          creditAmount === 0 ? 'Paid' : finalPaidAmount > 0 ? 'Partial' : 'Unpaid',
+          'Issued',
+        ]
+      );
+    } catch (e) {
+      console.warn('Auto invoice creation warning', e);
     }
 
     return await this.findById(newOrder.order_id, queryRunner);
@@ -480,6 +472,8 @@ class OrderModel {
     const {
       user_id,
       client_id,
+      custom_client_name,
+      customClientName,
       address = existingOrder.address,
       pincode = existingOrder.pincode,
       payment_type = existingOrder.payment_type,
@@ -503,16 +497,12 @@ class OrderModel {
       glass_thickness = existingOrder.glass_thickness,
       glass_width = existingOrder.glass_width,
       glass_height = existingOrder.glass_height,
-      hinge_prep = existingOrder.hinge_prep,
-      lock_bore_prep = existingOrder.lock_bore_prep,
-      handing = existingOrder.handing,
-      jamb_size = existingOrder.jamb_size,
-      custom_notes = existingOrder.custom_notes,
       order_number = existingOrder.order_number,
       po_number = existingOrder.po_number,
       order_date = existingOrder.order_date,
       delivery_date = existingOrder.delivery_date,
-      finishing = existingOrder.finishing,
+      color = orderPayload.color !== undefined ? orderPayload.color : (orderPayload.finishing !== undefined ? orderPayload.finishing : existingOrder.color || existingOrder.finishing || 'Raw / Unfinished'),
+      finishing = orderPayload.color !== undefined ? orderPayload.color : (orderPayload.finishing !== undefined ? orderPayload.finishing : existingOrder.finishing || 'Raw / Unfinished'),
       panel_profile = existingOrder.panel_profile,
       edge_profile = existingOrder.edge_profile,
       notes = existingOrder.notes,
@@ -521,7 +511,8 @@ class OrderModel {
       status = existingOrder.status,
     } = orderPayload;
 
-    const targetUserId = user_id || client_id || existingOrder.user_id;
+    const finalCustomClientName = custom_client_name !== undefined ? custom_client_name : (customClientName !== undefined ? customClientName : existingOrder.custom_client_name);
+    const targetUserId = user_id || client_id || (finalCustomClientName ? null : existingOrder.user_id);
     const currentRailSize = parseFloat(rail_size) || 2.25;
     const currentStileSize = parseFloat(stile_size) || 2.25;
     const currentDoorHeight = parseFloat(door_height) || 80;
@@ -590,13 +581,13 @@ class OrderModel {
 
       let itemPrice = parseFloat(row.price || row.unit_price || 0);
       if (isNaN(itemPrice) || itemPrice <= 0) {
-        if (row.product_id) {
+        if (row.product_id && targetUserId) {
           const priceRes = await queryRunner.query(
             `SELECT custom_price FROM user_prices WHERE user_id = $1 AND product_id = $2
              UNION ALL
              SELECT custom_price FROM user_prices WHERE product_id = $2
              LIMIT 1`,
-            [existingOrder.user_id, row.product_id]
+            [targetUserId, row.product_id]
           );
           if (priceRes.rows.length > 0) {
             itemPrice = parseFloat(priceRes.rows[0].custom_price);
@@ -653,23 +644,23 @@ class OrderModel {
     // Update order header
     const updateQuery = `
       UPDATE orders SET
-        user_id = $1, address = $2, pincode = $3, payment_type = $4, measurement_type = $5,
-        measurement_unit = $6, door_height = $7, door_width = $8, rail_size = $9, stile_size = $10,
-        additional_rail_enabled = $11, additional_rail_size = $12, additional_rail_position = $13,
-        door_thickness = $14, panel_thickness = $15, wood_species = $16, material = $17, door_style = $18,
-        grain_direction = $19, stain_color = $20, glass_type = $21, glass_thickness = $22, glass_width = $23,
-        glass_height = $24, hinge_prep = $25, lock_bore_prep = $26, handing = $27, jamb_size = $28, custom_notes = $29,
-        calculated_panel_height = $30, calculated_panel_width = $31, order_number = $32, po_number = $33,
-        order_date = $34, delivery_date = $35, finishing = $36, panel_profile = $37, edge_profile = $38,
-        notes = $39, height = $40, width = $41, quantity = $42, subtotal = $43, gst_amount = $44,
-        pst_amount = $45, total_amount = $46, paid_amount = $47, credit_amount = $48, status = $49,
+        user_id = $1, custom_client_name = $2, address = $3, pincode = $4, payment_type = $5, measurement_type = $6,
+        measurement_unit = $7, door_height = $8, door_width = $9, rail_size = $10, stile_size = $11,
+        additional_rail_enabled = $12, additional_rail_size = $13, additional_rail_position = $14,
+        door_thickness = $15, panel_thickness = $16, wood_species = $17, material = $18, door_style = $19,
+        grain_direction = $20, stain_color = $21, glass_type = $22, glass_thickness = $23, glass_width = $24,
+        glass_height = $25, calculated_panel_height = $26, calculated_panel_width = $27, order_number = $28, po_number = $29,
+        order_date = $30, delivery_date = $31, finishing = $32, color = $32, panel_profile = $33, edge_profile = $34,
+        notes = $35, height = $36, width = $37, quantity = $38, subtotal = $39, gst_amount = $40,
+        pst_amount = $41, total_amount = $42, paid_amount = $43, credit_amount = $44, status = $45,
         updated_at = CURRENT_TIMESTAMP
-      WHERE order_id = $50
+      WHERE order_id = $46
       RETURNING *
     `;
 
     await queryRunner.query(updateQuery, [
       targetUserId,
+      finalCustomClientName,
       address,
       pincode,
       payment_type,
@@ -693,18 +684,13 @@ class OrderModel {
       panel_profile === 'Glass Panel' && glass_thickness ? parseFloat(glass_thickness) : null,
       panel_profile === 'Glass Panel' && glass_width ? parseFloat(glass_width) : null,
       panel_profile === 'Glass Panel' && glass_height ? parseFloat(glass_height) : null,
-      hinge_prep || null,
-      lock_bore_prep || null,
-      handing || null,
-      jamb_size || null,
-      custom_notes || null,
       parseFloat(calcPanelHeightVal.toFixed(3)),
       parseFloat(calcPanelWidthVal.toFixed(3)),
       order_number,
       po_number || null,
       order_date,
       delivery_date || null,
-      finishing,
+      color,
       panel_profile,
       edge_profile,
       notes || null,
@@ -772,8 +758,8 @@ class OrderModel {
     // Update invoice
     const paymentStatus = creditAmount === 0 ? 'Paid' : finalPaidAmount > 0 ? 'Partial' : 'Unpaid';
     await queryRunner.query(
-      `UPDATE invoice SET paid_amount = $1, remaining_amount = $2, payment_status = $3 WHERE order_id = $4`,
-      [finalPaidAmount, creditAmount, paymentStatus, orderId]
+      `UPDATE invoice SET user_id = $1, paid_amount = $2, remaining_amount = $3, payment_status = $4 WHERE order_id = $5`,
+      [targetUserId, finalPaidAmount, creditAmount, paymentStatus, orderId]
     );
 
     return await this.findById(orderId, queryRunner);
@@ -783,7 +769,7 @@ class OrderModel {
     const queryRunner = client || db;
     const orderQuery = `
       SELECT o.*, 
-             COALESCE(u.name, 'Valued Client') as customer_name, 
+             COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name, 
              COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, 
              u.mobile_number as customer_mobile,
              u.username as customer_code
@@ -835,7 +821,7 @@ class OrderModel {
   static async findAll({ userId, status, search, categoryId, productId, unit, limit = 100, offset = 0 }) {
     let query = `
       SELECT o.*, 
-             COALESCE(u.name, 'Valued Client') as customer_name, 
+             COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name, 
              COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, 
              u.mobile_number as customer_mobile
       FROM orders o

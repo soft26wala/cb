@@ -107,11 +107,6 @@ CREATE TABLE IF NOT EXISTS orders (
     stain_color VARCHAR(150),
     glass_type VARCHAR(150),
     glass_thickness NUMERIC(10, 3),
-    hinge_prep VARCHAR(150),
-    lock_bore_prep VARCHAR(150),
-    handing VARCHAR(50),
-    jamb_size VARCHAR(100),
-    custom_notes TEXT,
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -133,11 +128,6 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS glass_type VARCHAR(150);
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS glass_thickness NUMERIC(10, 3);
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS glass_width NUMERIC(10, 3);
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS glass_height NUMERIC(10, 3);
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS hinge_prep VARCHAR(150);
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS lock_bore_prep VARCHAR(150);
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS handing VARCHAR(50);
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS jamb_size VARCHAR(100);
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS custom_notes TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS calculated_panel_height NUMERIC(12, 3);
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS calculated_panel_width NUMERIC(12, 3);
 

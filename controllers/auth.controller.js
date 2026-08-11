@@ -205,11 +205,27 @@ class AuthController {
       }
 
       const newAccessToken = generateAccessToken({ id: user.id, role: user.role, username: user.username });
-      return successResponse(res, 'Token refreshed successfully', { accessToken: newAccessToken });
+      // New refresh token bhi do taaki session rolling rahe
+      const { generateRefreshToken } = require('../utils/token');
+      const newRefreshToken = generateRefreshToken({ id: user.id });
+
+      return successResponse(res, 'Token refreshed successfully', {
+        accessToken: newAccessToken,
+        refreshToken: newRefreshToken,
+        user: {
+          id: user.id,
+          name: user.name,
+          username: user.username,
+          email: user.email,
+          role: user.role,
+          status: user.status,
+        },
+      });
     } catch (error) {
       return errorResponse(res, 'Invalid refresh token', error.message, 401);
     }
   }
+
 
   static async logout(req, res, next) {
     try {

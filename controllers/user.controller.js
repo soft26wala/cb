@@ -51,7 +51,7 @@ class UserController {
 
   static async createUser(req, res, next) {
     try {
-      const { name, company_name, mobile_number, username, email, password, role, status } = req.body;
+      const { name, company_name, mobile_number, pst_number, username, email, password, role, status } = req.body;
 
       if (role && role.toLowerCase() === 'admin' && req.user?.role !== 'admin') {
         return errorResponse(res, 'Only administrators can assign the admin role.', null, 403);
@@ -86,6 +86,7 @@ class UserController {
         name: name || company_name || 'Valued Client',
         company_name: company_name || null,
         mobile_number: mobile_number || null,
+        pst_number: pst_number || null,
         username: finalUsername,
         email: finalEmail,
         password: hashedPassword,

@@ -19,6 +19,7 @@ const financialYearRoutes = require('./financialYear.routes');
 const shortcutRoutes = require('./shortcut.routes');
 const companyCredentialsRoutes = require('./companyCredentials.routes');
 const awardRoutes = require('./award.routes');
+const colorRoutes = require('./color.routes');
 
 const router = express.Router();
 
@@ -26,6 +27,8 @@ router.use('/company-credentials', companyCredentialsRoutes);
 router.use('/company-credential', companyCredentialsRoutes);
 router.use('/credentials', companyCredentialsRoutes);
 
+router.use('/colors', colorRoutes);
+router.use('/color', colorRoutes);
 router.use('/auth', authRoutes);
 router.use('/', authRoutes);
 router.use('/users', userRoutes);

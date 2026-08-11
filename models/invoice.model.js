@@ -4,7 +4,7 @@ const CompanyCredentialsModel = require('./companyCredentials.model');
 class InvoiceModel {
   static async findByOrderId(orderId) {
     const query = `
-      SELECT i.*, COALESCE(u.name, 'Valued Client') as customer_name, COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, u.mobile_number as customer_mobile,
+      SELECT i.*, COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name, COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, u.mobile_number as customer_mobile,
              o.address, o.pincode, o.total_amount, o.subtotal, o.gst_amount, o.pst_amount, o.paid_amount as order_paid_amount, o.credit_amount, o.pst_number as customer_pst_number, o.payment_type
       FROM invoice i
       LEFT JOIN users u ON i.user_id = u.id
@@ -33,7 +33,7 @@ class InvoiceModel {
 
   static async findById(invoiceId) {
     const query = `
-      SELECT i.*, COALESCE(u.name, 'Valued Client') as customer_name, COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, u.mobile_number as customer_mobile,
+      SELECT i.*, COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name, COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, u.mobile_number as customer_mobile,
              o.address, o.pincode, o.total_amount, o.subtotal, o.gst_amount, o.pst_amount, o.paid_amount as order_paid_amount, o.credit_amount, o.pst_number as customer_pst_number, o.payment_type
       FROM invoice i
       LEFT JOIN users u ON i.user_id = u.id
@@ -65,7 +65,7 @@ class InvoiceModel {
 
   static async findAll({ userId, paymentStatus, limit = 50, offset = 0 }) {
     let query = `
-      SELECT i.*, COALESCE(u.name, 'Valued Client') as customer_name, COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, u.mobile_number as customer_mobile,
+      SELECT i.*, COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name, COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, u.mobile_number as customer_mobile,
              COALESCE(o.total_amount, i.paid_amount + i.remaining_amount) as total_amount,
              o.subtotal, o.gst_amount, o.pst_amount, o.address, o.pincode, o.pst_number as customer_pst_number, o.payment_type
       FROM invoice i
