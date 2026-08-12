@@ -20,8 +20,12 @@ const shortcutRoutes = require('./shortcut.routes');
 const companyCredentialsRoutes = require('./companyCredentials.routes');
 const awardRoutes = require('./award.routes');
 const colorRoutes = require('./color.routes');
+const paymentRoutes = require('./payment.routes');
 
 const router = express.Router();
+
+router.use('/payments', paymentRoutes);
+router.use('/payment', paymentRoutes);
 
 router.use('/company-credentials', companyCredentialsRoutes);
 router.use('/company-credential', companyCredentialsRoutes);

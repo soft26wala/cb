@@ -21,6 +21,9 @@ app.disable('x-powered-by');
 app.use(cors({ origin: true, credentials: true }));
 app.use(compression());
 app.use(cookieParser());
+// Stripe Webhook Raw Body Handler (Must precede express.json)
+app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
