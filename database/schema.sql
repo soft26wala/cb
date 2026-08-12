@@ -181,8 +181,17 @@ CREATE TABLE IF NOT EXISTS invoice (
     payment_status VARCHAR(20) NOT NULL CHECK (payment_status IN ('Paid', 'Unpaid', 'Partial')),
     paid_amount NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     remaining_amount NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
+    email_sent BOOLEAN DEFAULT FALSE,
+    email_sent_at TIMESTAMP WITH TIME ZONE,
+    email_message_id VARCHAR(255),
+    email_error TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE invoice ADD COLUMN IF NOT EXISTS email_sent BOOLEAN DEFAULT FALSE;
+ALTER TABLE invoice ADD COLUMN IF NOT EXISTS email_sent_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE invoice ADD COLUMN IF NOT EXISTS email_message_id VARCHAR(255);
+ALTER TABLE invoice ADD COLUMN IF NOT EXISTS email_error TEXT;
+
 
 -- ACCOUNT LEDGER
 CREATE TABLE IF NOT EXISTS accounts (

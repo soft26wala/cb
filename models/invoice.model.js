@@ -116,7 +116,31 @@ class InvoiceModel {
 
     return invoices;
   }
+
+  static async updateEmailStatus(invoiceId, { email_sent, email_sent_at, email_message_id, email_error }) {
+    const query = `
+      UPDATE invoice
+      SET email_sent = $1,
+          email_sent_at = $2,
+          email_message_id = $3,
+          email_error = $4
+      WHERE invoice_id = $15 OR order_id = $15
+      RETURNING *
+    `;
+    // We bind parameters carefully
+    const res = await db.query(
+      `UPDATE invoice
+       SET email_sent = $1,
+           email_sent_at = $2,
+           email_message_id = $3,
+           email_error = $4
+       WHERE invoice_id = $5 OR order_id = $5
+       RETURNING *`,
+      [email_sent, email_sent_at || new Date(), email_message_id || null, email_error || null, invoiceId]
+    );
+    return res.rows[0] || null;
+  }
 }
 
-
 module.exports = InvoiceModel;
+
