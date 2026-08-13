@@ -77,7 +77,8 @@ class InvoiceModel {
       FROM invoice i
       LEFT JOIN users u ON i.user_id = u.id
       LEFT JOIN orders o ON i.order_id = o.order_id
-      WHERE 1=1
+      WHERE (i.invoice_number IS NULL OR NOT (i.invoice_number LIKE 'CSH-%'))
+        AND NOT (LOWER(COALESCE(o.payment_type, '')) LIKE '%cash%' AND COALESCE(o.gst_amount, 0) = 0)
     `;
     const params = [];
 
@@ -94,12 +95,20 @@ class InvoiceModel {
     params.push(limit, offset);
 
     const result = await db.query(query, params);
-    const invoices = result.rows || [];
+    let invoices = result.rows || [];
 
     const credentials = await CompanyCredentialsModel.getCredentials();
 
-    for (const inv of invoices) {
+    invoices = invoices.map((inv, idx) => {
       inv.company_credentials = credentials;
+      if (!inv.invoice_number || inv.invoice_number === 'INV-2026-000' || inv.invoice_number.trim() === '') {
+        const year = new Date(inv.created_at || Date.now()).getFullYear();
+        inv.invoice_number = `INV-${year}-${String(invoices.length - idx).padStart(4, '0')}`;
+      }
+      return inv;
+    });
+
+    for (const inv of invoices) {
       if (inv.order_id) {
         const itemsRes = await db.query(
           `SELECT oi.*, p.product_name, p.product_description
