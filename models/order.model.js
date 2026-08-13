@@ -826,9 +826,6 @@ class OrderModel {
 
     // Update invoice
     const paymentStatus = creditAmount === 0 ? 'Paid' : finalPaidAmount > 0 ? 'Partial' : 'Unpaid';
-    const isCashOrder = Boolean(payment_type && String(payment_type).toLowerCase().includes('cash'));
-    const isTaxOff = (orderPayload.gst_amount !== undefined && Number(orderPayload.gst_amount) === 0) ||
-      (isCashOrder && (orderPayload.include_cash_tax === false || orderPayload.include_cash_tax === 0 || orderPayload.include_cash_tax === 'false'));
     const targetPrefix = isTaxOff ? 'CSH-' : 'INV-';
 
     let updatedInvoiceNumber = orderPayload.invoice_number || orderPayload.invoiceNumber;
