@@ -5,6 +5,7 @@ const categoryRoutes = require('./category.routes');
 const productRoutes = require('./product.routes');
 const userPriceRoutes = require('./userPrice.routes');
 const orderRoutes = require('./order.routes');
+const invoiceRoutes = require('./invoice.routes');
 const accountRoutes = require('./account.routes');
 const expenseRoutes = require('./expense.routes');
 const employeeRoutes = require('./employee.routes');
