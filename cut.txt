@@ -1,0 +1,7 @@
+cut list - ( company name , client name, order number , pov number,  )
+
+invice ( solid to(delever company), mannual,  )
+
+cutasion ( work order(remove) )
+
+stattemant

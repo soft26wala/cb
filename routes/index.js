@@ -21,8 +21,12 @@ const companyCredentialsRoutes = require('./companyCredentials.routes');
 const awardRoutes = require('./award.routes');
 const colorRoutes = require('./color.routes');
 const paymentRoutes = require('./payment.routes');
+const statementRoutes = require('./statement.routes');
 
 const router = express.Router();
+
+router.use('/statement', statementRoutes);
+router.use('/statements', statementRoutes);
 
 router.use('/payments', paymentRoutes);
 router.use('/payment', paymentRoutes);

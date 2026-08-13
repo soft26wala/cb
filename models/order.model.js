@@ -850,6 +850,7 @@ class OrderModel {
     const orderQuery = `
       SELECT o.*, 
              COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name, 
+             u.company_name as company_name,
              COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, 
              u.mobile_number as customer_mobile,
              u.username as customer_code
@@ -902,6 +903,7 @@ class OrderModel {
     let query = `
       SELECT o.*, 
              COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name, 
+             u.company_name as company_name,
              COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, 
              u.mobile_number as customer_mobile
       FROM orders o
