@@ -315,8 +315,13 @@ class OrderModel {
     }
 
     const isCashOrder = Boolean(payment_type && String(payment_type).toLowerCase().includes('cash'));
+    const isCashTaxIncluded = Boolean(
+      orderPayload.include_cash_tax === true ||
+      orderPayload.include_cash_tax === 1 ||
+      orderPayload.include_cash_tax === 'true'
+    );
     const isTaxOff = (orderPayload.gst_amount !== undefined && Number(orderPayload.gst_amount) === 0) ||
-      (isCashOrder && (orderPayload.include_cash_tax === false || orderPayload.include_cash_tax === 0 || orderPayload.include_cash_tax === 'false'));
+      (isCashOrder && !isCashTaxIncluded);
 
     if (isTaxOff) {
       calculatedGst = 0;
@@ -329,9 +334,6 @@ class OrderModel {
     calculatedTotal = calculatedSubtotal - discountAmount + deliveryCharge + calculatedGst + calculatedPst;
 
     let targetPaymentType = payment_type || 'Credit';
-    if (targetPaymentType === 'Cash' || targetPaymentType === 'cash' || targetPaymentType === 'COD' || targetPaymentType === 'cod') {
-      targetPaymentType = 'Credit';
-    }
 
     let finalPaidAmount = parseFloat(paid_amount) || 0;
     if (targetPaymentType === 'Online') {
@@ -469,8 +471,13 @@ class OrderModel {
     try {
       const year = new Date().getFullYear();
       const isCashOrder = Boolean(payment_type && String(payment_type).toLowerCase().includes('cash'));
+      const isCashTaxIncluded = Boolean(
+        orderPayload.include_cash_tax === true ||
+        orderPayload.include_cash_tax === 1 ||
+        orderPayload.include_cash_tax === 'true'
+      );
       const isTaxOff = (orderPayload.gst_amount !== undefined && Number(orderPayload.gst_amount) === 0) ||
-        (isCashOrder && (orderPayload.include_cash_tax === false || orderPayload.include_cash_tax === 0 || orderPayload.include_cash_tax === 'false'));
+        (isCashOrder && !isCashTaxIncluded);
 
       const targetPrefix = isTaxOff ? 'CSH-' : 'INV-';
       let generatedInvoiceNumber = orderPayload.invoice_number || orderPayload.invoiceNumber;
@@ -691,8 +698,13 @@ class OrderModel {
 
     const taxableSubtotal = Math.max(0, calculatedSubtotal - discountAmount);
     const isCashOrder = Boolean(payment_type && String(payment_type).toLowerCase().includes('cash'));
+    const isCashTaxIncluded = Boolean(
+      orderPayload.include_cash_tax === true ||
+      orderPayload.include_cash_tax === 1 ||
+      orderPayload.include_cash_tax === 'true'
+    );
     const isTaxOff = (orderPayload.gst_amount !== undefined && Number(orderPayload.gst_amount) === 0) ||
-      (isCashOrder && (orderPayload.include_cash_tax === false || orderPayload.include_cash_tax === 0 || orderPayload.include_cash_tax === 'false'));
+      (isCashOrder && !isCashTaxIncluded);
 
     if (isTaxOff) {
       calculatedGst = 0;

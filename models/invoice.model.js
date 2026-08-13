@@ -70,7 +70,7 @@ class InvoiceModel {
   static async fixLegacyInvoiceNumbers() {
     try {
       const res = await db.query(`
-        SELECT i.invoice_id, i.invoice_number, i.created_at, o.payment_type, o.gst_amount
+        SELECT i.invoice_id, i.order_id, i.invoice_number, i.created_at, o.payment_type, o.gst_amount
         FROM invoice i
         LEFT JOIN orders o ON i.order_id = o.order_id
         ORDER BY COALESCE(i.created_at, o.created_at) ASC
@@ -85,6 +85,13 @@ class InvoiceModel {
         const isCash = Boolean((row.payment_type || '').toLowerCase().includes('cash'));
         const isTaxOff = row.gst_amount !== undefined && Number(row.gst_amount) === 0;
         const isCashMemo = (isCash && isTaxOff) || (row.invoice_number && row.invoice_number.startsWith('CSH-'));
+
+        if (isCashMemo && row.order_id) {
+          await db.query(
+            `UPDATE orders SET payment_type = 'Cash', gst_amount = 0.00, pst_amount = 0.00, total_amount = subtotal - COALESCE(discount_amount, 0) + COALESCE(delivery_charge, 0) WHERE order_id = $1 AND (payment_type != 'Cash' OR gst_amount > 0)`,
+            [row.order_id]
+          );
+        }
 
         let targetSeqNum = '';
         if (isCashMemo) {
