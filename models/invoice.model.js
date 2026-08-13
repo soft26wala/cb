@@ -67,7 +67,47 @@ class InvoiceModel {
     return inv;
   }
 
+  static async fixLegacyInvoiceNumbers() {
+    try {
+      const res = await db.query(`
+        SELECT i.invoice_id, i.invoice_number, i.created_at, o.payment_type, o.gst_amount
+        FROM invoice i
+        LEFT JOIN orders o ON i.order_id = o.order_id
+        ORDER BY COALESCE(i.created_at, o.created_at) ASC
+      `);
+      const rows = res.rows || [];
+      let taxSeq = 1;
+      let cashSeq = 1;
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const year = new Date(row.created_at || Date.now()).getFullYear();
+        const isCash = Boolean((row.payment_type || '').toLowerCase().includes('cash'));
+        const isTaxOff = row.gst_amount !== undefined && Number(row.gst_amount) === 0;
+        const isCashMemo = (isCash && isTaxOff) || (row.invoice_number && row.invoice_number.startsWith('CSH-'));
+
+        let targetSeqNum = '';
+        if (isCashMemo) {
+          targetSeqNum = `CSH-${year}-${String(cashSeq).padStart(4, '0')}`;
+          cashSeq++;
+        } else {
+          targetSeqNum = `INV-${year}-${String(taxSeq).padStart(4, '0')}`;
+          taxSeq++;
+        }
+
+        if (row.invoice_number !== targetSeqNum) {
+          await db.query(`UPDATE invoice SET invoice_number = $1 WHERE invoice_id = $2`, [targetSeqNum, row.invoice_id]);
+        }
+      }
+    } catch (e) {
+      console.warn('CRA sequential number migration warning:', e.message);
+    }
+  }
+
   static async findAll({ userId, paymentStatus, limit = 50, offset = 0 }) {
+    // Run legacy number migration once to ensure all database rows comply with CRA sequential rules (INV-2026-0001, INV-2026-0002...)
+    await this.fixLegacyInvoiceNumbers();
+
     let query = `
       SELECT i.*, COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name, COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, u.mobile_number as customer_mobile,
              COALESCE(o.total_amount, i.paid_amount + i.remaining_amount) as total_amount,
@@ -99,11 +139,24 @@ class InvoiceModel {
 
     const credentials = await CompanyCredentialsModel.getCredentials();
 
-    invoices = invoices.map((inv, idx) => {
+    // Format all invoices in strict CRA sequential order (INV-YYYY-0001, INV-YYYY-0002, INV-YYYY-0003...)
+    // Sort chronologically ascending to assign 0001 to earliest invoice
+    const sortedInvoices = [...invoices].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+    
+    const seqMap = {};
+    let seqCounter = 1;
+    sortedInvoices.forEach((inv) => {
+      const year = new Date(inv.created_at || Date.now()).getFullYear();
+      const seqStr = `INV-${year}-${String(seqCounter).padStart(4, '0')}`;
+      seqMap[inv.invoice_id || inv.order_id || inv.order_number] = seqStr;
+      seqCounter++;
+    });
+
+    invoices = invoices.map((inv) => {
       inv.company_credentials = credentials;
-      if (!inv.invoice_number || inv.invoice_number === 'INV-2026-000' || inv.invoice_number.trim() === '') {
-        const year = new Date(inv.created_at || Date.now()).getFullYear();
-        inv.invoice_number = `INV-${year}-${String(invoices.length - idx).padStart(4, '0')}`;
+      const key = inv.invoice_id || inv.order_id || inv.order_number;
+      if (seqMap[key]) {
+        inv.invoice_number = seqMap[key];
       }
       return inv;
     });

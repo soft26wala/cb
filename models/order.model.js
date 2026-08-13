@@ -289,8 +289,8 @@ class OrderModel {
     let finalOrderNumber = order_number;
     if (!finalOrderNumber || String(finalOrderNumber).trim() === '') {
       const year = new Date().getFullYear();
-      const countRes = await queryRunner.query(`SELECT COUNT(*) as count FROM orders`);
-      const nextSeq = (parseInt(countRes.rows[0].count, 10) + 1).toString().padStart(4, '0');
+      const countRes = await queryRunner.query(`SELECT COUNT(*) as count FROM orders WHERE order_number LIKE $1`, [`ORD-${year}-%`]);
+      const nextSeq = (parseInt(countRes.rows[0]?.count || 0, 10) + 1).toString().padStart(4, '0');
       finalOrderNumber = `ORD-${year}-${nextSeq}`;
     }
 
@@ -467,6 +467,7 @@ class OrderModel {
 
     // Auto-create invoice complying with CRA rules (unique sequential INV- for tax orders, CSH- for non-tax cash orders)
     try {
+      const year = new Date().getFullYear();
       const isCashOrder = Boolean(payment_type && String(payment_type).toLowerCase().includes('cash'));
       const isTaxOff = (orderPayload.gst_amount !== undefined && Number(orderPayload.gst_amount) === 0) ||
         (isCashOrder && (orderPayload.include_cash_tax === false || orderPayload.include_cash_tax === 0 || orderPayload.include_cash_tax === 'false'));
@@ -475,15 +476,12 @@ class OrderModel {
       let generatedInvoiceNumber = orderPayload.invoice_number || orderPayload.invoiceNumber;
 
       if (!generatedInvoiceNumber || String(generatedInvoiceNumber).trim() === '') {
-        if (finalOrderNumber && finalOrderNumber.includes('-')) {
-          const seqPart = finalOrderNumber.split('-').slice(1).join('-');
-          generatedInvoiceNumber = `${targetPrefix}${seqPart}`;
-        } else {
-          const year = new Date().getFullYear();
-          const countRes = await queryRunner.query(`SELECT COUNT(*) as count FROM invoice`);
-          const nextSeq = (parseInt(countRes.rows[0]?.count || 0, 10) + 1).toString().padStart(4, '0');
-          generatedInvoiceNumber = `${targetPrefix}${year}-${nextSeq}`;
-        }
+        const countRes = await queryRunner.query(
+          `SELECT COUNT(*) as count FROM invoice WHERE invoice_number LIKE $1`,
+          [`${targetPrefix}${year}-%`]
+        );
+        const nextSeq = (parseInt(countRes.rows[0]?.count || 0, 10) + 1).toString().padStart(4, '0');
+        generatedInvoiceNumber = `${targetPrefix}${year}-${nextSeq}`;
       }
 
       const invoicePaymentStatus = creditAmount === 0 ? 'Paid' : finalPaidAmount > 0 ? 'Partial' : 'Unpaid';
