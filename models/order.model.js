@@ -465,11 +465,26 @@ class OrderModel {
       }
     }
 
-    // Auto-create invoice
+    // Auto-create invoice complying with CRA rules (unique sequential INV- for tax orders, CSH- for non-tax cash orders)
     try {
-      const generatedInvoiceNumber = finalOrderNumber
-        ? (finalOrderNumber.startsWith('ORD-') ? finalOrderNumber.replace('ORD-', 'INV-') : `INV-${finalOrderNumber}`)
-        : `INV-${Date.now()}`;
+      const isCashOrder = Boolean(payment_type && String(payment_type).toLowerCase().includes('cash'));
+      const isTaxOff = (orderPayload.gst_amount !== undefined && Number(orderPayload.gst_amount) === 0) ||
+        (isCashOrder && (orderPayload.include_cash_tax === false || orderPayload.include_cash_tax === 0 || orderPayload.include_cash_tax === 'false'));
+
+      const targetPrefix = isTaxOff ? 'CSH-' : 'INV-';
+      let generatedInvoiceNumber = orderPayload.invoice_number || orderPayload.invoiceNumber;
+
+      if (!generatedInvoiceNumber || String(generatedInvoiceNumber).trim() === '') {
+        if (finalOrderNumber && finalOrderNumber.includes('-')) {
+          const seqPart = finalOrderNumber.split('-').slice(1).join('-');
+          generatedInvoiceNumber = `${targetPrefix}${seqPart}`;
+        } else {
+          const year = new Date().getFullYear();
+          const countRes = await queryRunner.query(`SELECT COUNT(*) as count FROM invoice`);
+          const nextSeq = (parseInt(countRes.rows[0]?.count || 0, 10) + 1).toString().padStart(4, '0');
+          generatedInvoiceNumber = `${targetPrefix}${year}-${nextSeq}`;
+        }
+      }
 
       const invoicePaymentStatus = creditAmount === 0 ? 'Paid' : finalPaidAmount > 0 ? 'Partial' : 'Unpaid';
 
@@ -813,10 +828,31 @@ class OrderModel {
 
     // Update invoice
     const paymentStatus = creditAmount === 0 ? 'Paid' : finalPaidAmount > 0 ? 'Partial' : 'Unpaid';
-    await queryRunner.query(
-      `UPDATE invoice SET user_id = $1, paid_amount = $2, remaining_amount = $3, payment_status = $4, delivery_charge = $5, discount_amount = $6 WHERE order_id = $7`,
-      [targetUserId, finalPaidAmount.toFixed(2), creditAmount.toFixed(2), paymentStatus, deliveryCharge.toFixed(2), discountAmount.toFixed(2), orderId]
-    );
+    const isCashOrder = Boolean(payment_type && String(payment_type).toLowerCase().includes('cash'));
+    const isTaxOff = (orderPayload.gst_amount !== undefined && Number(orderPayload.gst_amount) === 0) ||
+      (isCashOrder && (orderPayload.include_cash_tax === false || orderPayload.include_cash_tax === 0 || orderPayload.include_cash_tax === 'false'));
+    const targetPrefix = isTaxOff ? 'CSH-' : 'INV-';
+
+    let updatedInvoiceNumber = orderPayload.invoice_number || orderPayload.invoiceNumber;
+    if (!updatedInvoiceNumber) {
+      const existingInvNumber = existingOrder.invoice_number || existingOrder.order_number || '';
+      if (existingInvNumber.includes('-')) {
+        const seqPart = existingInvNumber.split('-').slice(1).join('-');
+        updatedInvoiceNumber = `${targetPrefix}${seqPart}`;
+      }
+    }
+
+    if (updatedInvoiceNumber) {
+      await queryRunner.query(
+        `UPDATE invoice SET user_id = $1, paid_amount = $2, remaining_amount = $3, payment_status = $4, delivery_charge = $5, discount_amount = $6, invoice_number = $7 WHERE order_id = $8`,
+        [targetUserId, finalPaidAmount.toFixed(2), creditAmount.toFixed(2), paymentStatus, deliveryCharge.toFixed(2), discountAmount.toFixed(2), updatedInvoiceNumber, orderId]
+      );
+    } else {
+      await queryRunner.query(
+        `UPDATE invoice SET user_id = $1, paid_amount = $2, remaining_amount = $3, payment_status = $4, delivery_charge = $5, discount_amount = $6 WHERE order_id = $7`,
+        [targetUserId, finalPaidAmount.toFixed(2), creditAmount.toFixed(2), paymentStatus, deliveryCharge.toFixed(2), discountAmount.toFixed(2), orderId]
+      );
+    }
 
     return await this.findById(orderId, queryRunner);
   }
