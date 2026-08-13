@@ -314,8 +314,18 @@ class OrderModel {
       }
     }
 
-    calculatedGst = taxableSubtotal * 0.05;
-    calculatedPst = isPstExempt ? 0 : taxableSubtotal * 0.07;
+    const isCashOrder = Boolean(payment_type && String(payment_type).toLowerCase().includes('cash'));
+    const isTaxOff = (orderPayload.gst_amount !== undefined && Number(orderPayload.gst_amount) === 0) ||
+      (isCashOrder && (orderPayload.include_cash_tax === false || orderPayload.include_cash_tax === 0 || orderPayload.include_cash_tax === 'false'));
+
+    if (isTaxOff) {
+      calculatedGst = 0;
+      calculatedPst = 0;
+    } else {
+      calculatedGst = taxableSubtotal * 0.05;
+      calculatedPst = isPstExempt ? 0 : taxableSubtotal * 0.07;
+    }
+
     calculatedTotal = calculatedSubtotal - discountAmount + deliveryCharge + calculatedGst + calculatedPst;
 
     let targetPaymentType = payment_type || 'Credit';
@@ -667,8 +677,18 @@ class OrderModel {
     const discountAmount = parseFloat(orderPayload.discount_amount !== undefined ? orderPayload.discount_amount : (orderPayload.discount !== undefined ? orderPayload.discount : (orderPayload.discountAmount !== undefined ? orderPayload.discountAmount : existingOrder.discount_amount || 0))) || 0;
 
     const taxableSubtotal = Math.max(0, calculatedSubtotal - discountAmount);
-    calculatedGst = taxableSubtotal * 0.05;
-    calculatedPst = existingOrder.pst_exempt ? 0 : taxableSubtotal * 0.07;
+    const isCashOrder = Boolean(payment_type && String(payment_type).toLowerCase().includes('cash'));
+    const isTaxOff = (orderPayload.gst_amount !== undefined && Number(orderPayload.gst_amount) === 0) ||
+      (isCashOrder && (orderPayload.include_cash_tax === false || orderPayload.include_cash_tax === 0 || orderPayload.include_cash_tax === 'false'));
+
+    if (isTaxOff) {
+      calculatedGst = 0;
+      calculatedPst = 0;
+    } else {
+      calculatedGst = taxableSubtotal * 0.05;
+      calculatedPst = existingOrder.pst_exempt ? 0 : taxableSubtotal * 0.07;
+    }
+
     calculatedTotal = calculatedSubtotal - discountAmount + deliveryCharge + calculatedGst + calculatedPst;
 
     const finalPaidAmount = parseFloat(paid_amount) || 0;

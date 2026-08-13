@@ -46,6 +46,9 @@ router.get('/reports/credit-list', isAdmin, ReportController.getCreditList);
 router.get('/tax', isAdmin, ReportController.getTaxReport);
 router.get('/reports/tax', isAdmin, ReportController.getTaxReport);
 
+router.get('/pst-exempt', isAdmin, ReportController.getPstExemptReport);
+router.get('/reports/pst-exempt', isAdmin, ReportController.getPstExemptReport);
+
 router.get('/dashboard', isAdmin, DashboardController.getDashboard);
 router.get('/reports/dashboard', isAdmin, DashboardController.getDashboard);
 

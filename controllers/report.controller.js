@@ -127,6 +127,16 @@ class ReportController {
       next(error);
     }
   }
+
+  static async getPstExemptReport(req, res, next) {
+    try {
+      const { type = 'monthly', startDate, endDate } = req.query;
+      const report = await ReportModel.getPstExemptReport(type, startDate, endDate);
+      return successResponse(res, `PST Exemption Report (${type}) fetched successfully`, report);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 module.exports = ReportController;

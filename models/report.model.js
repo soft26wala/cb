@@ -125,6 +125,83 @@ class ReportModel {
     return rows;
   }
 
+  static async getPstExemptReport(filterType, customStartDate, customEndDate) {
+    const { dateCondition, params } = getDateRangeFilter(filterType, customStartDate, customEndDate, 'o.created_at');
+
+    const query = `
+      SELECT 
+        o.order_id,
+        o.order_number,
+        o.po_number,
+        o.created_at,
+        o.order_date,
+        o.subtotal,
+        o.gst_amount,
+        o.pst_amount,
+        o.total_amount,
+        o.status,
+        COALESCE(NULLIF(o.pst_number, ''), u.pst_number, '') as pst_number,
+        COALESCE(NULLIF(u.company_name, ''), o.company_name, '') as company_name,
+        COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name,
+        i.invoice_number
+      FROM orders o
+      LEFT JOIN users u ON o.user_id = u.id
+      LEFT JOIN invoice i ON o.order_id = i.order_id
+      WHERE ${dateCondition}
+        AND o.status != 'Cancelled'
+        AND (
+          (o.pst_number IS NOT NULL AND o.pst_number != '' AND o.pst_number != '0')
+          OR (u.pst_number IS NOT NULL AND u.pst_number != '' AND u.pst_number != '0')
+          OR o.pst_exempt = true
+        )
+      ORDER BY COALESCE(o.order_date, o.created_at) DESC
+    `;
+
+    const result = await db.query(query, params);
+    const rows = result.rows || [];
+
+    let totalExemptSales = 0;
+    let totalPstSaved = 0;
+
+    const formattedRows = rows.map((r) => {
+      const subtotal = parseFloat(r.subtotal || 0);
+      const totalAmount = parseFloat(r.total_amount || 0);
+      const pstAmount = parseFloat(r.pst_amount || 0);
+      const pstSaved = subtotal * 0.07;
+
+      totalExemptSales += subtotal;
+      totalPstSaved += pstSaved;
+
+      return {
+        order_id: r.order_id,
+        invoice_number: r.invoice_number || (r.order_number ? `INV-${r.order_number}` : `#${r.order_id.slice(0, 8)}`),
+        order_number: r.order_number ? `#${r.order_number}` : `-`,
+        po_number: r.po_number || '-',
+        date: r.order_date || r.created_at,
+        date_formatted: new Date(r.order_date || r.created_at).toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+        }),
+        company_name: r.company_name || '-',
+        customer_name: r.customer_name || 'Valued Client',
+        pst_number: r.pst_number || 'PST EXEMPT',
+        subtotal: subtotal,
+        pst_amount: pstAmount,
+        total_amount: totalAmount,
+      };
+    });
+
+    return {
+      summary: {
+        total_exempt_orders: rows.length,
+        total_exempt_sales: parseFloat(totalExemptSales.toFixed(2)),
+        total_pst_saved: parseFloat(totalPstSaved.toFixed(2)),
+      },
+      orders: formattedRows,
+    };
+  }
+
   static async getPurchaseReport(filterType, customStartDate, customEndDate) {
     const { dateCondition, params } = getDateRangeFilter(filterType, customStartDate, customEndDate, 'p.created_at');
 

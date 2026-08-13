@@ -39,8 +39,14 @@ function generateServerInvoicePdf(invoice = {}) {
   const gst = parseFloat(invoice.gst_amount || (subtotal * 0.05));
   const pst = invoice.pst_exempt ? 0 : parseFloat(invoice.pst_amount || (subtotal * 0.07));
   const grandTotal = parseFloat(invoice.total_amount || (subtotal - discount + delivery + gst + pst));
-  const paid = parseFloat(invoice.paid_amount || 0);
-  const remaining = Math.max(0, grandTotal - paid);
+  
+  const isCashOrder = Boolean(
+    (invoice.payment_type || '').toLowerCase().includes('cash') ||
+    (invoice.payment_method || '').toLowerCase().includes('cash') ||
+    (invoice.method || '').toLowerCase().includes('cash')
+  );
+  const paid = isCashOrder ? 0 : parseFloat(invoice.paid_amount || 0);
+  const remaining = isCashOrder ? grandTotal : Math.max(0, grandTotal - paid);
 
   // Header Brand Band
   doc.setFont('times', 'bold');
