@@ -154,12 +154,35 @@ class StatementController {
         }
       });
 
+      // Categorize payment method breakdown
+      let cashPaid = 0;
+      let onlinePaid = 0;
+      let cardPaid = 0;
+      let chequePaid = 0;
+
+      periodTxns.forEach((txn) => {
+        if (txn.type === 'PAYMENT') {
+          const methodStr = String(txn.raw?.method || txn.raw?.payment_type || '').toLowerCase();
+          if (methodStr.includes('cash')) {
+            cashPaid += txn.credit;
+          } else if (methodStr.includes('card') || methodStr.includes('debit') || methodStr.includes('credit')) {
+            cardPaid += txn.credit;
+          } else if (methodStr.includes('online') || methodStr.includes('stripe') || methodStr.includes('transfer') || methodStr.includes('bank') || methodStr.includes('etransfer')) {
+            onlinePaid += txn.credit;
+          } else {
+            chequePaid += txn.credit;
+          }
+        }
+      });
+
       // Calculate running balance row by row
       let runningBalance = openingBalance;
       const formattedTxns = periodTxns.map((txn) => {
         runningBalance += txn.debit - txn.credit;
+        const methodStr = String(txn.raw?.method || txn.raw?.payment_type || 'Cash');
         return {
           ...txn,
+          method: txn.type === 'PAYMENT' ? methodStr : '-',
           date_formatted: txn.date.toLocaleDateString('en-US', {
             year: 'numeric',
             month: 'short',
@@ -183,9 +206,190 @@ class StatementController {
           total_orders_count: periodOrdersCount,
           total_billed: totalPeriodBilled,
           total_paid: totalPeriodPaid,
+          cash_paid: cashPaid,
+          online_paid: onlinePaid,
+          card_paid: cardPaid,
+          cheque_paid: chequePaid,
           closing_balance: runningBalance,
         },
         transactions: formattedTxns,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getAllClientsStatementSummary(req, res, next) {
+    try {
+      const { startDate, endDate, search } = req.query;
+
+      const start = startDate ? new Date(startDate) : new Date(0);
+      const end = endDate ? new Date(new Date(endDate).setHours(23, 59, 59, 999)) : new Date();
+
+      // 1. Fetch all clients from users table
+      let usersQuery = `
+        SELECT id, name, company_name, email, mobile_number, pst_number, created_at, status
+        FROM users
+        WHERE role != 'admin' OR role IS NULL
+      `;
+      const userParams = [];
+
+      if (search && search.trim()) {
+        userParams.push(`%${search.trim()}%`);
+        usersQuery += ` AND (name ILIKE $${userParams.length} OR company_name ILIKE $${userParams.length} OR mobile_number ILIKE $${userParams.length} OR email ILIKE $${userParams.length})`;
+      }
+
+      usersQuery += ` ORDER BY name ASC`;
+      const usersRes = await db.query(usersQuery, userParams);
+      const clients = usersRes.rows || [];
+
+      // 2. Fetch summary orders & payments for date range
+      let ordersQuery = `
+        SELECT user_id, custom_client_name, 
+               COALESCE(SUM(total_amount), 0) as total_billed,
+               COALESCE(SUM(paid_amount), 0) as direct_paid,
+               COUNT(order_id) as orders_count
+        FROM orders
+        WHERE status != 'Cancelled'
+      `;
+      const orderQueryParams = [];
+      if (startDate) {
+        orderQueryParams.push(start);
+        ordersQuery += ` AND COALESCE(order_date, created_at) >= $${orderQueryParams.length}`;
+      }
+      if (endDate) {
+        orderQueryParams.push(end);
+        ordersQuery += ` AND COALESCE(order_date, created_at) <= $${orderQueryParams.length}`;
+      }
+      ordersQuery += ` GROUP BY user_id, custom_client_name`;
+      const ordersRes = await db.query(ordersQuery, orderQueryParams);
+
+      let paymentsQuery = `
+        SELECT customer_id, method, COALESCE(SUM(amount), 0) as amount_sum
+        FROM payments
+        WHERE 1=1
+      `;
+      const paymentQueryParams = [];
+      if (startDate) {
+        paymentQueryParams.push(start);
+        paymentsQuery += ` AND created_at >= $${paymentQueryParams.length}`;
+      }
+      if (endDate) {
+        paymentQueryParams.push(end);
+        paymentsQuery += ` AND created_at <= $${paymentQueryParams.length}`;
+      }
+      paymentsQuery += ` GROUP BY customer_id, method`;
+      const paymentsRes = await db.query(paymentsQuery, paymentQueryParams);
+
+      // Map totals per client
+      const ordersMap = new Map();
+      (ordersRes.rows || []).forEach((row) => {
+        if (row.user_id) {
+          ordersMap.set(String(row.user_id), row);
+        }
+      });
+
+      const paymentsMap = new Map();
+      (paymentsRes.rows || []).forEach((row) => {
+        if (row.customer_id) {
+          const uid = String(row.customer_id);
+          if (!paymentsMap.has(uid)) {
+            paymentsMap.set(uid, { cash: 0, online: 0, card: 0, cheque: 0, total: 0 });
+          }
+          const pObj = paymentsMap.get(uid);
+          const amt = parseFloat(row.amount_sum || 0);
+          const m = String(row.method || '').toLowerCase();
+          if (m.includes('cash')) pObj.cash += amt;
+          else if (m.includes('card') || m.includes('debit') || m.includes('credit')) pObj.card += amt;
+          else if (m.includes('online') || m.includes('stripe') || m.includes('transfer') || m.includes('bank') || m.includes('etransfer')) pObj.online += amt;
+          else pObj.cheque += amt;
+          pObj.total += amt;
+        }
+      });
+
+      // Also compute net running outstanding credit balance per user from all time
+      const totalBalanceRes = await db.query(`
+        SELECT u.id as user_id,
+          (COALESCE(o.total_ord, 0) - COALESCE(p.total_pay, 0) - COALESCE(o.direct_pay, 0)) as pending_balance
+        FROM users u
+        LEFT JOIN (
+          SELECT user_id, SUM(total_amount) as total_ord, SUM(paid_amount) as direct_pay 
+          FROM orders WHERE status != 'Cancelled' GROUP BY user_id
+        ) o ON u.id = o.user_id
+        LEFT JOIN (
+          SELECT customer_id, SUM(amount) as total_pay 
+          FROM payments GROUP BY customer_id
+        ) p ON u.id = p.customer_id
+      `);
+
+      const pendingMap = new Map();
+      (totalBalanceRes.rows || []).forEach((r) => {
+        if (r.user_id) {
+          pendingMap.set(String(r.user_id), parseFloat(r.pending_balance || 0));
+        }
+      });
+
+      let grandTotalBilled = 0;
+      let grandTotalPaid = 0;
+      let grandCashPaid = 0;
+      let grandOnlinePaid = 0;
+      let grandCardPaid = 0;
+      let grandOutstandingBalance = 0;
+
+      const clientSummaries = clients.map((c) => {
+        const uid = String(c.id);
+        const oData = ordersMap.get(uid) || { total_billed: 0, direct_paid: 0, orders_count: 0 };
+        const pData = paymentsMap.get(uid) || { cash: 0, online: 0, card: 0, cheque: 0, total: 0 };
+        const pendingBal = pendingMap.get(uid) || 0;
+
+        const totalBilled = parseFloat(oData.total_billed || 0);
+        const directPaid = parseFloat(oData.direct_paid || 0);
+        const cashPaid = pData.cash;
+        const onlinePaid = pData.online;
+        const cardPaid = pData.card;
+        const totalPaid = pData.total + directPaid;
+
+        grandTotalBilled += totalBilled;
+        grandTotalPaid += totalPaid;
+        grandCashPaid += cashPaid;
+        grandOnlinePaid += onlinePaid;
+        grandCardPaid += cardPaid;
+        if (pendingBal > 0) grandOutstandingBalance += pendingBal;
+
+        return {
+          id: c.id,
+          name: c.name,
+          company_name: c.company_name,
+          email: c.email,
+          mobile_number: c.mobile_number,
+          pst_number: c.pst_number,
+          status: c.status || 'active',
+          orders_count: parseInt(oData.orders_count || 0, 10),
+          total_billed: totalBilled,
+          cash_paid: cashPaid,
+          online_paid: onlinePaid,
+          card_paid: cardPaid,
+          cheque_paid: pData.cheque,
+          total_paid: totalPaid,
+          closing_balance: pendingBal,
+        };
+      });
+
+      return successResponse(res, 'Clients statement summary fetched successfully', {
+        date_range: {
+          start_date: startDate || '',
+          end_date: endDate || '',
+        },
+        global_summary: {
+          total_clients: clientSummaries.length,
+          total_billed: grandTotalBilled,
+          total_paid: grandTotalPaid,
+          cash_paid: grandCashPaid,
+          online_paid: grandOnlinePaid,
+          card_paid: grandCardPaid,
+          total_outstanding_balance: grandOutstandingBalance,
+        },
+        clients: clientSummaries,
       });
     } catch (error) {
       next(error);
