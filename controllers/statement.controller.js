@@ -1,6 +1,18 @@
 const db = require('../config/db');
 const { successResponse, errorResponse } = require('../utils/response');
 
+// Ensure payments table has necessary columns if missing
+const ensurePaymentsColumnsExist = async () => {
+  try {
+    await db.query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS reference_number VARCHAR(100);`);
+    await db.query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS notes TEXT;`);
+    await db.query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;`);
+  } catch (err) {
+    console.warn('Payments columns migration warning:', err.message);
+  }
+};
+ensurePaymentsColumnsExist();
+
 class StatementController {
   static async getClientStatement(req, res, next) {
     try {
@@ -10,11 +22,12 @@ class StatementController {
         return errorResponse(res, 'Please select a Client or specify Client Name', null, 400);
       }
 
-      const start = startDate ? new Date(startDate) : new Date(0); // Epoch if start not specified
-      const end = endDate ? new Date(new Date(endDate).setHours(23, 59, 59, 999)) : new Date();
+      const start = startDate ? new Date(startDate) : null;
+      const end = endDate ? new Date(new Date(endDate).setHours(23, 59, 59, 999)) : null;
 
       // 1. Fetch Client Info
       let clientInfo = {
+        id: userId || null,
         name: customClientName || 'Valued Client',
         company_name: '',
         email: '',
@@ -22,92 +35,144 @@ class StatementController {
         pst_number: '',
       };
 
-      if (userId) {
-        const uRes = await db.query(
-          `SELECT id, name, company_name, email, mobile_number, pst_number FROM users WHERE id = $1`,
-          [userId]
-        );
-        if (uRes.rows.length > 0) {
-          clientInfo = {
-            ...uRes.rows[0],
-            name: uRes.rows[0].name || customClientName || 'Valued Client',
-          };
+      if (userId && userId !== 'null' && userId !== 'undefined') {
+        try {
+          const uRes = await db.query(
+            `SELECT id, name, company_name, email, mobile_number, pst_number FROM users WHERE id::text = $1`,
+            [String(userId)]
+          );
+          if (uRes.rows.length > 0) {
+            clientInfo = {
+              ...uRes.rows[0],
+              name: uRes.rows[0].name || customClientName || 'Valued Client',
+            };
+          }
+        } catch (e) {
+          console.warn('User fetch by ID warning:', e.message);
         }
       }
 
-      // 2. Fetch Orders for this Client
-      let ordersQuery = `
-        SELECT order_id, order_number, po_number, order_date, created_at, 
-               total_amount, paid_amount, credit_amount, status, payment_type
-        FROM orders
-        WHERE status != 'Cancelled'
-      `;
+      // 2. Fetch Orders for this Client (flexible match by user_id OR custom client name / company name)
       const orderParams = [];
+      let orderWhereClauses = [];
 
-      if (userId) {
-        orderParams.push(userId);
-        ordersQuery += ` AND user_id = $${orderParams.length}`;
-      } else if (customClientName) {
-        orderParams.push(`%${customClientName.trim()}%`);
-        ordersQuery += ` AND custom_client_name ILIKE $${orderParams.length}`;
+      if (userId && userId !== 'null' && userId !== 'undefined') {
+        orderParams.push(String(userId));
+        orderWhereClauses.push(`o.user_id::text = $${orderParams.length}`);
       }
 
-      ordersQuery += ` ORDER BY COALESCE(order_date, created_at) ASC`;
+      const nameToMatch = clientInfo.name || customClientName;
+      if (nameToMatch && nameToMatch.trim() && nameToMatch !== 'Valued Client') {
+        orderParams.push(`%${nameToMatch.trim()}%`);
+        orderWhereClauses.push(`o.custom_client_name ILIKE $${orderParams.length}`);
+        orderWhereClauses.push(`u.name ILIKE $${orderParams.length}`);
+      }
+
+      if (clientInfo.company_name && clientInfo.company_name.trim()) {
+        orderParams.push(`%${clientInfo.company_name.trim()}%`);
+        orderWhereClauses.push(`o.custom_client_name ILIKE $${orderParams.length}`);
+        orderWhereClauses.push(`u.company_name ILIKE $${orderParams.length}`);
+      }
+
+      let ordersQuery = `
+        SELECT o.order_id, o.order_number, o.po_number, o.order_date, o.delivery_date, o.created_at, 
+               o.total_amount, o.paid_amount, o.credit_amount, o.status, o.payment_type, o.subtotal, o.gst_amount, o.pst_amount,
+               o.custom_client_name
+        FROM orders o
+        LEFT JOIN users u ON o.user_id = u.id
+        WHERE o.status != 'Cancelled'
+      `;
+
+      if (orderWhereClauses.length > 0) {
+        ordersQuery += ` AND (${orderWhereClauses.join(' OR ')})`;
+      }
+
+      ordersQuery += ` ORDER BY COALESCE(o.order_date, o.created_at) ASC`;
       const ordersRes = await db.query(ordersQuery, orderParams);
       const orders = ordersRes.rows || [];
 
-      // 3. Fetch Payments Received for this Client
+      // 3. Fetch Payments Received for this Client (flexible match by customer_id OR order user_id OR custom_client_name)
+      const paymentParams = [];
+      let paymentWhereClauses = [];
+
+      if (userId && userId !== 'null' && userId !== 'undefined') {
+        paymentParams.push(String(userId));
+        paymentWhereClauses.push(`p.customer_id::text = $${paymentParams.length}`);
+        paymentWhereClauses.push(`o.user_id::text = $${paymentParams.length}`);
+      }
+
+      if (nameToMatch && nameToMatch.trim() && nameToMatch !== 'Valued Client') {
+        paymentParams.push(`%${nameToMatch.trim()}%`);
+        paymentWhereClauses.push(`o.custom_client_name ILIKE $${paymentParams.length}`);
+        paymentWhereClauses.push(`u.name ILIKE $${paymentParams.length}`);
+      }
+
+      if (clientInfo.company_name && clientInfo.company_name.trim()) {
+        paymentParams.push(`%${clientInfo.company_name.trim()}%`);
+        paymentWhereClauses.push(`o.custom_client_name ILIKE $${paymentParams.length}`);
+        paymentWhereClauses.push(`u.company_name ILIKE $${paymentParams.length}`);
+      }
+
       let paymentsQuery = `
-        SELECT p.payment_id, p.order_id, p.amount, p.method, p.reference_number, p.notes, p.created_at,
+        SELECT p.payment_id, p.order_id, p.customer_id, p.amount, p.method, 
+               COALESCE(p.transaction_id, p.reference_number, '') as reference_number, 
+               p.notes, COALESCE(p.payment_date, p.created_at) as created_at,
                o.order_number
         FROM payments p
         LEFT JOIN orders o ON p.order_id = o.order_id
+        LEFT JOIN users u ON p.customer_id = u.id
         WHERE 1=1
       `;
-      const paymentParams = [];
 
-      if (userId) {
-        paymentParams.push(userId);
-        paymentsQuery += ` AND p.customer_id = $${paymentParams.length}`;
-      } else if (customClientName) {
-        paymentParams.push(`%${customClientName.trim()}%`);
-        paymentsQuery += ` AND o.custom_client_name ILIKE $${paymentParams.length}`;
+      if (paymentWhereClauses.length > 0) {
+        paymentsQuery += ` AND (${paymentWhereClauses.join(' OR ')})`;
       }
 
-      paymentsQuery += ` ORDER BY p.created_at ASC`;
+      paymentsQuery += ` ORDER BY COALESCE(p.payment_date, p.created_at) ASC`;
       const paymentsRes = await db.query(paymentsQuery, paymentParams);
       const payments = paymentsRes.rows || [];
 
-      // Combine into unified transaction list
+      // Combine into unified transaction ledger list
       const allTxns = [];
 
       orders.forEach((ord) => {
         const txnDate = new Date(ord.order_date || ord.created_at);
+        const delivDate = ord.delivery_date ? new Date(ord.delivery_date) : null;
+        const delivStr = delivDate
+          ? delivDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+          : (ord.status === 'Delivered' || ord.status === 'Completed' ? 'Delivered' : 'Pending');
+
         allTxns.push({
           id: `ord-${ord.order_id}`,
           date: txnDate,
+          delivery_date: delivDate,
+          delivery_date_formatted: delivStr,
           type: 'ORDER',
+          status: ord.status || 'Active',
           reference: ord.order_number ? `#${ord.order_number}` : `Order #${ord.order_id.slice(0, 8)}`,
           po_number: ord.po_number || '-',
-          description: `Order Invoice ${ord.order_number ? '#' + ord.order_number : ''} (${ord.payment_type || 'Credit'})`,
-          debit: parseFloat(ord.total_amount || 0), // Billed
+          description: `Order ${ord.order_number ? '#' + ord.order_number : ''}${ord.po_number ? ' (PO: ' + ord.po_number + ')' : ''} — Status: ${ord.status || 'Active'}`,
+          debit: parseFloat(ord.total_amount || 0), // Billed (+)
           credit: 0,
           raw: ord,
         });
 
-        // If order had immediate initial payment recorded on creation without a separate payments row
+        // If order had direct initial payment recorded without a separate row in payments table
         if (parseFloat(ord.paid_amount || 0) > 0) {
-          const hasSeparatePaymentRow = payments.some((p) => p.order_id === ord.order_id);
+          const hasSeparatePaymentRow = payments.some((p) => String(p.order_id) === String(ord.order_id));
           if (!hasSeparatePaymentRow) {
             allTxns.push({
               id: `ord-pay-${ord.order_id}`,
               date: txnDate,
+              delivery_date: null,
+              delivery_date_formatted: '-',
               type: 'PAYMENT',
+              status: 'Paid',
               reference: ord.order_number ? `#${ord.order_number}` : `Order #${ord.order_id.slice(0, 8)}`,
               po_number: ord.po_number || '-',
-              description: `Initial Payment Received for Order ${ord.order_number ? '#' + ord.order_number : ''}`,
+              description: `Initial Payment Received via ${ord.payment_type || 'Cash'} for Order ${ord.order_number ? '#' + ord.order_number : ''}`,
               debit: 0,
-              credit: parseFloat(ord.paid_amount || 0), // Received
+              credit: parseFloat(ord.paid_amount || 0), // Paid (-)
               raw: ord,
             });
           }
@@ -119,20 +184,23 @@ class StatementController {
         allTxns.push({
           id: `pay-${pay.payment_id}`,
           date: txnDate,
+          delivery_date: null,
+          delivery_date_formatted: '-',
           type: 'PAYMENT',
+          status: 'Payment Received',
           reference: pay.order_number ? `#${pay.order_number}` : (pay.reference_number || 'PMT'),
           po_number: '-',
-          description: `Payment Received via ${pay.method || 'Cash'}${pay.reference_number ? ' (Ref: ' + pay.reference_number + ')' : ''}`,
+          description: `Payment Received via ${pay.method || 'Cash'}${pay.reference_number ? ' (Ref: ' + pay.reference_number + ')' : ''}${pay.notes ? ' — ' + pay.notes : ''}`,
           debit: 0,
-          credit: parseFloat(pay.amount || 0), // Received
+          credit: parseFloat(pay.amount || 0), // Paid (-)
           raw: pay,
         });
       });
 
-      // Sort all transactions chronologically
+      // Sort chronologically ascending
       allTxns.sort((a, b) => a.date.getTime() - b.date.getTime());
 
-      // Separate into prior (Opening Balance) vs period transactions
+      // Separate into prior opening balance vs period transactions
       let openingBalance = 0;
       const periodTxns = [];
 
@@ -140,38 +208,27 @@ class StatementController {
       let totalPeriodPaid = 0;
       let periodOrdersCount = 0;
 
-      allTxns.forEach((txn) => {
-        if (startDate && txn.date < start) {
-          openingBalance += txn.debit - txn.credit;
-        } else if (!endDate || txn.date <= end) {
-          if (txn.type === 'ORDER') {
-            totalPeriodBilled += txn.debit;
-            periodOrdersCount += 1;
-          } else if (txn.type === 'PAYMENT') {
-            totalPeriodPaid += txn.credit;
-          }
-          periodTxns.push(txn);
-        }
-      });
-
-      // Categorize payment method breakdown
       let cashPaid = 0;
       let onlinePaid = 0;
       let cardPaid = 0;
       let chequePaid = 0;
 
-      periodTxns.forEach((txn) => {
-        if (txn.type === 'PAYMENT') {
-          const methodStr = String(txn.raw?.method || txn.raw?.payment_type || '').toLowerCase();
-          if (methodStr.includes('cash')) {
-            cashPaid += txn.credit;
-          } else if (methodStr.includes('card') || methodStr.includes('debit') || methodStr.includes('credit')) {
-            cardPaid += txn.credit;
-          } else if (methodStr.includes('online') || methodStr.includes('stripe') || methodStr.includes('transfer') || methodStr.includes('bank') || methodStr.includes('etransfer')) {
-            onlinePaid += txn.credit;
-          } else {
-            chequePaid += txn.credit;
+      allTxns.forEach((txn) => {
+        if (start && txn.date < start) {
+          openingBalance += txn.debit - txn.credit;
+        } else if (!end || txn.date <= end) {
+          if (txn.type === 'ORDER') {
+            totalPeriodBilled += txn.debit;
+            periodOrdersCount += 1;
+          } else if (txn.type === 'PAYMENT') {
+            totalPeriodPaid += txn.credit;
+            const methodStr = String(txn.raw?.method || txn.raw?.payment_type || '').toLowerCase();
+            if (methodStr.includes('cash')) cashPaid += txn.credit;
+            else if (methodStr.includes('card') || methodStr.includes('debit') || methodStr.includes('credit')) cardPaid += txn.credit;
+            else if (methodStr.includes('online') || methodStr.includes('stripe') || methodStr.includes('transfer') || methodStr.includes('bank') || methodStr.includes('etransfer')) onlinePaid += txn.credit;
+            else chequePaid += txn.credit;
           }
+          periodTxns.push(txn);
         }
       });
 
@@ -180,6 +237,7 @@ class StatementController {
       const formattedTxns = periodTxns.map((txn) => {
         runningBalance += txn.debit - txn.credit;
         const methodStr = String(txn.raw?.method || txn.raw?.payment_type || 'Cash');
+        const balanceLabel = runningBalance > 0 ? 'Pending Udhar' : runningBalance < 0 ? 'Advance Paid' : 'Settled';
         return {
           ...txn,
           method: txn.type === 'PAYMENT' ? methodStr : '-',
@@ -191,6 +249,7 @@ class StatementController {
           debit_formatted: txn.debit > 0 ? `$${txn.debit.toFixed(2)}` : '-',
           credit_formatted: txn.credit > 0 ? `$${txn.credit.toFixed(2)}` : '-',
           running_balance: runningBalance,
+          running_balance_status: balanceLabel,
           running_balance_formatted: `$${runningBalance.toFixed(2)}`,
         };
       });
@@ -198,8 +257,8 @@ class StatementController {
       return successResponse(res, 'Client statement generated successfully', {
         client: clientInfo,
         date_range: {
-          start_date: startDate || (periodTxns.length > 0 ? periodTxns[0].date.toISOString().split('T')[0] : new Date().toISOString().split('T')[0]),
-          end_date: endDate || new Date().toISOString().split('T')[0],
+          start_date: startDate || '',
+          end_date: endDate || '',
         },
         summary: {
           opening_balance: openingBalance,
@@ -215,6 +274,7 @@ class StatementController {
         transactions: formattedTxns,
       });
     } catch (error) {
+      console.error('[getClientStatement Error]:', error);
       next(error);
     }
   }
@@ -223,8 +283,8 @@ class StatementController {
     try {
       const { startDate, endDate, search } = req.query;
 
-      const start = startDate ? new Date(startDate) : new Date(0);
-      const end = endDate ? new Date(new Date(endDate).setHours(23, 59, 59, 999)) : new Date();
+      const start = startDate ? new Date(startDate) : null;
+      const end = endDate ? new Date(new Date(endDate).setHours(23, 59, 59, 999)) : null;
 
       // 1. Fetch all clients from users table
       let usersQuery = `
@@ -253,11 +313,11 @@ class StatementController {
         WHERE status != 'Cancelled'
       `;
       const orderQueryParams = [];
-      if (startDate) {
+      if (start) {
         orderQueryParams.push(start);
         ordersQuery += ` AND COALESCE(order_date, created_at) >= $${orderQueryParams.length}`;
       }
-      if (endDate) {
+      if (end) {
         orderQueryParams.push(end);
         ordersQuery += ` AND COALESCE(order_date, created_at) <= $${orderQueryParams.length}`;
       }
@@ -270,13 +330,13 @@ class StatementController {
         WHERE 1=1
       `;
       const paymentQueryParams = [];
-      if (startDate) {
+      if (start) {
         paymentQueryParams.push(start);
-        paymentsQuery += ` AND created_at >= $${paymentQueryParams.length}`;
+        paymentsQuery += ` AND COALESCE(payment_date, created_at) >= $${paymentQueryParams.length}`;
       }
-      if (endDate) {
+      if (end) {
         paymentQueryParams.push(end);
-        paymentsQuery += ` AND created_at <= $${paymentQueryParams.length}`;
+        paymentsQuery += ` AND COALESCE(payment_date, created_at) <= $${paymentQueryParams.length}`;
       }
       paymentsQuery += ` GROUP BY customer_id, method`;
       const paymentsRes = await db.query(paymentsQuery, paymentQueryParams);
@@ -307,7 +367,7 @@ class StatementController {
         }
       });
 
-      // Also compute net running outstanding credit balance per user from all time
+      // Compute net running outstanding credit balance per user from all time
       const totalBalanceRes = await db.query(`
         SELECT u.id as user_id,
           (COALESCE(o.total_ord, 0) - COALESCE(p.total_pay, 0) - COALESCE(o.direct_pay, 0)) as pending_balance
@@ -392,9 +452,11 @@ class StatementController {
         clients: clientSummaries,
       });
     } catch (error) {
+      console.error('[getAllClientsStatementSummary Error]:', error);
       next(error);
     }
   }
 }
 
 module.exports = StatementController;
+
