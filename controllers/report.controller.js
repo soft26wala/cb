@@ -137,6 +137,15 @@ class ReportController {
       next(error);
     }
   }
+
+  static async getPstClientsReport(req, res, next) {
+    try {
+      const clients = await ReportModel.getPstClientsReport();
+      return successResponse(res, 'PST client status report fetched successfully', clients);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 module.exports = ReportController;

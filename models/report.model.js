@@ -3,37 +3,275 @@ const { getDateRangeFilter } = require('../services/tax.service');
 
 class ReportModel {
   static async getGstReport(filterType, customStartDate, customEndDate) {
-    const { dateCondition, params } = getDateRangeFilter(filterType, customStartDate, customEndDate, 'o.created_at');
+    try {
+      const { dateCondition, params } = getDateRangeFilter(filterType, customStartDate, customEndDate, 'o.created_at');
 
-    const query = `
-      SELECT
-        COUNT(o.order_id) as total_orders,
-        COALESCE(SUM(o.subtotal), 0.00) as total_subtotal,
-        GREATEST(0.00, COALESCE(SUM(o.gst_amount), 0.00) - COALESCE((SELECT SUM(COALESCE(gst_reduced, amount_lost * 0.05)) FROM delivery_memos WHERE status = 'Credit' OR status = 'Approved' OR status = 'Resolved'), 0.00)) as total_gst_collected,
-        COALESCE(SUM(o.total_amount), 0.00) as total_order_amount
-      FROM orders o
-      WHERE ${dateCondition} AND o.status != 'Cancelled' AND COALESCE(o.gst_amount, 0) > 0 AND NOT (LOWER(COALESCE(o.payment_type, '')) LIKE '%cash%' AND COALESCE(o.gst_amount, 0) = 0)
-    `;
+      const summaryQuery = `
+        SELECT
+          COUNT(o.order_id) as total_orders,
+          COALESCE(SUM(o.subtotal), 0.00) as total_subtotal,
+          GREATEST(0.00, COALESCE(SUM(COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00)), 0.00) - COALESCE((SELECT SUM(COALESCE(gst_reduced, amount_lost * 0.05)) FROM delivery_memos WHERE status = 'Credit' OR status = 'Approved' OR status = 'Resolved'), 0.00)) as total_gst_collected,
+          COALESCE(SUM(o.total_amount), 0.00) as total_order_amount
+        FROM orders o
+        WHERE ${dateCondition} 
+          AND o.status != 'Cancelled'
+          AND LOWER(COALESCE(o.payment_type, '')) NOT IN ('cash', 'cod')
+          AND (o.order_number IS NULL OR NOT (o.order_number LIKE 'CSH-%'))
+          AND NOT EXISTS (
+            SELECT 1 FROM invoice i2 
+            WHERE i2.order_id::text = o.order_id::text 
+              AND i2.invoice_number LIKE 'CSH-%'
+          )
+      `;
 
-    const result = await db.query(query, params);
-    return result.rows[0];
+      const ordersQuery = `
+        SELECT
+          o.order_id,
+          o.order_number,
+          o.po_number,
+          o.created_at,
+          o.order_date,
+          o.subtotal,
+          COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00) as gst_amount,
+          COALESCE(NULLIF(o.pst_amount, 0), CASE WHEN o.pst_exempt = true THEN 0 ELSE o.subtotal * 0.07 END, 0.00) as pst_amount,
+          o.total_amount,
+          o.status,
+          o.payment_type,
+          COALESCE(NULLIF(u.company_name, ''), 'Client Company') as company_name,
+          COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name,
+          (SELECT invoice_number FROM invoice WHERE invoice.order_id::text = o.order_id::text LIMIT 1) as invoice_number
+        FROM orders o
+        LEFT JOIN users u ON o.user_id::text = u.id::text
+        WHERE ${dateCondition} 
+          AND o.status != 'Cancelled'
+          AND LOWER(COALESCE(o.payment_type, '')) NOT IN ('cash', 'cod')
+          AND (o.order_number IS NULL OR NOT (o.order_number LIKE 'CSH-%'))
+          AND NOT EXISTS (
+            SELECT 1 FROM invoice i2 
+            WHERE i2.order_id::text = o.order_id::text 
+              AND i2.invoice_number LIKE 'CSH-%'
+          )
+        ORDER BY COALESCE(o.order_date, o.created_at) DESC
+      `;
+
+      const [summaryRes, ordersRes] = await Promise.all([
+        db.query(summaryQuery, params),
+        db.query(ordersQuery, params),
+      ]);
+
+      const s = summaryRes.rows[0] || {};
+      const rawOrders = ordersRes.rows || [];
+
+      const formattedOrders = rawOrders.map((r, idx) => ({
+        order_id: r.order_id,
+        invoice_number: r.invoice_number || (r.order_number ? `INV-${r.order_number}` : `INV-GST-${idx + 1}`),
+        order_number: r.order_number ? `#${r.order_number}` : `#ORD-${idx + 1}`,
+        po_number: r.po_number || '-',
+        date: r.order_date || r.created_at,
+        date_formatted: new Date(r.order_date || r.created_at || new Date()).toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+        }),
+        company_name: r.company_name,
+        customer_name: r.customer_name,
+        subtotal: parseFloat(r.subtotal || 0),
+        gst_amount: parseFloat(r.gst_amount || 0),
+        total_amount: parseFloat(r.total_amount || 0),
+        status: r.status,
+        payment_type: r.payment_type || 'Credit',
+      }));
+
+      return {
+        total_orders: parseInt(s.total_orders, 10) || 0,
+        total_subtotal: parseFloat(parseFloat(s.total_subtotal || 0).toFixed(2)),
+        total_gst_collected: parseFloat(parseFloat(s.total_gst_collected || 0).toFixed(2)),
+        total_order_amount: parseFloat(parseFloat(s.total_order_amount || 0).toFixed(2)),
+        summary: {
+          total_orders: parseInt(s.total_orders, 10) || 0,
+          total_subtotal: parseFloat(parseFloat(s.total_subtotal || 0).toFixed(2)),
+          total_gst_collected: parseFloat(parseFloat(s.total_gst_collected || 0).toFixed(2)),
+          total_order_amount: parseFloat(parseFloat(s.total_order_amount || 0).toFixed(2)),
+        },
+        orders: formattedOrders,
+      };
+    } catch (err) {
+      console.error('Error in getGstReport:', err);
+      throw err;
+    }
   }
 
   static async getPstReport(filterType, customStartDate, customEndDate) {
-    const { dateCondition, params } = getDateRangeFilter(filterType, customStartDate, customEndDate, 'o.created_at');
+    try {
+      try {
+        await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS pst_exempt BOOLEAN DEFAULT FALSE;`);
+        await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS pst_number VARCHAR(100);`);
+      } catch (e) {}
+
+      const { dateCondition, params } = getDateRangeFilter(filterType, customStartDate, customEndDate, 'o.created_at');
+
+      const summaryQuery = `
+        SELECT
+          COUNT(o.order_id) as total_orders,
+          COALESCE(SUM(o.subtotal), 0.00) as total_subtotal,
+          GREATEST(0.00, COALESCE(SUM(CASE WHEN o.pst_exempt = true OR COALESCE(u.pst_exempt, false) = true THEN 0 ELSE COALESCE(NULLIF(o.pst_amount, 0), o.subtotal * 0.07, 0.00) END), 0.00) - COALESCE((SELECT SUM(COALESCE(pst_reduced, amount_lost * 0.07)) FROM delivery_memos WHERE status = 'Credit' OR status = 'Approved' OR status = 'Resolved'), 0.00)) as total_pst_collected,
+          COALESCE(SUM(o.total_amount), 0.00) as total_order_amount,
+          COALESCE(SUM(CASE WHEN o.pst_exempt = true OR COALESCE(u.pst_exempt, false) = true OR (o.pst_number IS NOT NULL AND o.pst_number != '' AND o.pst_number != '0') THEN o.subtotal ELSE 0 END), 0.00) as total_pst_exempt_sales,
+          COALESCE(SUM(CASE WHEN o.pst_exempt = true OR COALESCE(u.pst_exempt, false) = true OR (o.pst_number IS NOT NULL AND o.pst_number != '' AND o.pst_number != '0') THEN o.subtotal * 0.07 ELSE 0 END), 0.00) as total_pst_saved
+        FROM orders o
+        LEFT JOIN users u ON o.user_id::text = u.id::text
+        WHERE ${dateCondition} 
+          AND o.status != 'Cancelled'
+          AND LOWER(COALESCE(o.payment_type, '')) NOT IN ('cash', 'cod')
+          AND (o.order_number IS NULL OR NOT (o.order_number LIKE 'CSH-%'))
+          AND NOT EXISTS (
+            SELECT 1 FROM invoice i2 
+            WHERE i2.order_id::text = o.order_id::text 
+              AND i2.invoice_number LIKE 'CSH-%'
+          )
+      `;
+
+      const ordersQuery = `
+        SELECT
+          o.order_id,
+          o.order_number,
+          o.po_number,
+          o.created_at,
+          o.order_date,
+          o.subtotal,
+          COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00) as gst_amount,
+          COALESCE(NULLIF(o.pst_amount, 0), CASE WHEN o.pst_exempt = true OR COALESCE(u.pst_exempt, false) = true OR (o.pst_number IS NOT NULL AND o.pst_number != '' AND o.pst_number != '0' AND COALESCE(o.pst_amount, 0) = 0) THEN 0 ELSE o.subtotal * 0.07 END, 0.00) as pst_amount,
+          COALESCE(o.pst_exempt, u.pst_exempt, false) as pst_exempt,
+          COALESCE(NULLIF(o.pst_number, ''), u.pst_number, '') as pst_number,
+          o.total_amount,
+          o.status,
+          o.payment_type,
+          COALESCE(NULLIF(u.company_name, ''), 'Client Company') as company_name,
+          COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name,
+          (SELECT invoice_number FROM invoice WHERE invoice.order_id::text = o.order_id::text LIMIT 1) as invoice_number
+        FROM orders o
+        LEFT JOIN users u ON o.user_id::text = u.id::text
+        WHERE ${dateCondition} 
+          AND o.status != 'Cancelled'
+          AND LOWER(COALESCE(o.payment_type, '')) NOT IN ('cash', 'cod')
+          AND (o.order_number IS NULL OR NOT (o.order_number LIKE 'CSH-%'))
+          AND NOT EXISTS (
+            SELECT 1 FROM invoice i2 
+            WHERE i2.order_id::text = o.order_id::text 
+              AND i2.invoice_number LIKE 'CSH-%'
+          )
+        ORDER BY COALESCE(o.order_date, o.created_at) DESC
+      `;
+
+      const [summaryRes, ordersRes] = await Promise.all([
+        db.query(summaryQuery, params),
+        db.query(ordersQuery, params),
+      ]);
+
+      const s = summaryRes.rows[0] || {};
+      const rawOrders = ordersRes.rows || [];
+
+      const formattedOrders = rawOrders.map((r, idx) => {
+        const subtotal = parseFloat(r.subtotal || 0);
+        const pstAmount = parseFloat(r.pst_amount || 0);
+        const isExempt = Boolean(r.pst_exempt || (r.pst_number && r.pst_number !== '0'));
+
+        return {
+          order_id: r.order_id,
+          invoice_number: r.invoice_number || (r.order_number ? `INV-${r.order_number}` : `INV-PST-${idx + 1}`),
+          order_number: r.order_number ? `#${r.order_number}` : `#ORD-${idx + 1}`,
+          po_number: r.po_number || '-',
+          date: r.order_date || r.created_at,
+          date_formatted: new Date(r.order_date || r.created_at || new Date()).toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+          }),
+          company_name: r.company_name,
+          customer_name: r.customer_name,
+          pst_number: r.pst_number || '-',
+          is_pst_exempt: isExempt,
+          pst_status: isExempt ? 'OFF (Exempt)' : 'ON (Active 7%)',
+          subtotal: subtotal,
+          pst_amount: pstAmount,
+          total_amount: parseFloat(r.total_amount || 0),
+          status: r.status,
+          payment_type: r.payment_type || 'Credit',
+        };
+      });
+
+      return {
+        total_orders: parseInt(s.total_orders, 10) || 0,
+        total_subtotal: parseFloat(parseFloat(s.total_subtotal || 0).toFixed(2)),
+        total_pst_collected: parseFloat(parseFloat(s.total_pst_collected || 0).toFixed(2)),
+        total_order_amount: parseFloat(parseFloat(s.total_order_amount || 0).toFixed(2)),
+        summary: {
+          total_orders: parseInt(s.total_orders, 10) || 0,
+          total_subtotal: parseFloat(parseFloat(s.total_subtotal || 0).toFixed(2)),
+          total_pst_collected: parseFloat(parseFloat(s.total_pst_collected || 0).toFixed(2)),
+          total_order_amount: parseFloat(parseFloat(s.total_order_amount || 0).toFixed(2)),
+          total_pst_exempt_sales: parseFloat(parseFloat(s.total_pst_exempt_sales || 0).toFixed(2)),
+          total_pst_saved: parseFloat(parseFloat(s.total_pst_saved || 0).toFixed(2)),
+        },
+        orders: formattedOrders,
+      };
+    } catch (err) {
+      console.error('Error in getPstReport:', err);
+      throw err;
+    }
+  }
+
+  static async getPstClientsReport() {
+    try {
+      await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS pst_exempt BOOLEAN DEFAULT FALSE;`);
+    } catch (e) {}
 
     const query = `
-      SELECT
+      SELECT 
+        u.id as user_id,
+        COALESCE(NULLIF(u.name, ''), u.username, 'Valued Client') as customer_name,
+        COALESCE(NULLIF(u.company_name, ''), 'Client Company') as company_name,
+        u.email,
+        u.mobile_number,
+        COALESCE(u.pst_number, '') as pst_number,
+        COALESCE(u.pst_exempt, false) as pst_exempt,
+        u.status as user_status,
         COUNT(o.order_id) as total_orders,
-        COALESCE(SUM(o.subtotal), 0.00) as total_subtotal,
-        GREATEST(0.00, COALESCE(SUM(o.pst_amount), 0.00) - COALESCE((SELECT SUM(COALESCE(pst_reduced, amount_lost * 0.07)) FROM delivery_memos WHERE status = 'Credit' OR status = 'Approved' OR status = 'Resolved'), 0.00)) as total_pst_collected,
-        COALESCE(SUM(o.total_amount), 0.00) as total_order_amount
-      FROM orders o
-      WHERE ${dateCondition} AND o.status != 'Cancelled' AND COALESCE(o.pst_amount, 0) > 0 AND NOT (LOWER(COALESCE(o.payment_type, '')) LIKE '%cash%' AND COALESCE(o.pst_amount, 0) = 0)
+        COALESCE(SUM(o.subtotal), 0) as total_sales,
+        COALESCE(SUM(CASE WHEN u.pst_exempt = true OR o.pst_exempt = true THEN 0 ELSE COALESCE(NULLIF(o.pst_amount, 0), o.subtotal * 0.07, 0) END), 0) as total_pst_collected,
+        COALESCE(SUM(CASE WHEN u.pst_exempt = true OR o.pst_exempt = true OR (u.pst_number IS NOT NULL AND u.pst_number != '' AND u.pst_number != '0') THEN o.subtotal * 0.07 ELSE 0 END), 0) as total_pst_saved
+      FROM users u
+      LEFT JOIN orders o ON u.id::text = o.user_id::text 
+        AND o.status != 'Cancelled'
+        AND LOWER(COALESCE(o.payment_type, '')) NOT IN ('cash', 'cod')
+        AND (o.order_number IS NULL OR NOT (o.order_number LIKE 'CSH-%'))
+        AND NOT EXISTS (
+          SELECT 1 FROM invoice i2 
+          WHERE i2.order_id::text = o.order_id::text 
+            AND i2.invoice_number LIKE 'CSH-%'
+        )
+      WHERE LOWER(COALESCE(u.role, 'user')) != 'admin' AND u.status IS DISTINCT FROM 'disabled'
+      GROUP BY u.id, u.name, u.username, u.company_name, u.email, u.mobile_number, u.pst_number, u.pst_exempt, u.status
+      ORDER BY u.name ASC
     `;
 
-    const result = await db.query(query, params);
-    return result.rows[0];
+    const result = await db.query(query);
+    const rows = result.rows || [];
+
+    return rows.map((row) => ({
+      user_id: row.user_id,
+      customer_name: row.customer_name,
+      company_name: row.company_name,
+      email: row.email,
+      mobile_number: row.mobile_number,
+      pst_number: row.pst_number,
+      pst_exempt: Boolean(row.pst_exempt),
+      pst_status: Boolean(row.pst_exempt) ? 'off' : 'on', // 'off' = PST Exempt (0%), 'on' = PST Active (7%)
+      total_orders: parseInt(row.total_orders, 10) || 0,
+      total_sales: parseFloat(parseFloat(row.total_sales || 0).toFixed(2)),
+      total_pst_collected: parseFloat(parseFloat(row.total_pst_collected || 0).toFixed(2)),
+      total_pst_saved: parseFloat(parseFloat(row.total_pst_saved || 0).toFixed(2)),
+    }));
   }
 
   static async getSalesReport(filterType, customStartDate, customEndDate) {
@@ -141,20 +379,27 @@ class ReportModel {
         o.total_amount,
         o.status,
         COALESCE(NULLIF(o.pst_number, ''), u.pst_number, 'PST-1014-0576') as pst_number,
-        COALESCE(NULLIF(u.company_name, ''), o.company_name, 'Cabinet Doors Company') as company_name,
+        COALESCE(NULLIF(u.company_name, ''), 'Cabinet Doors Company') as company_name,
         COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name,
         i.invoice_number
       FROM orders o
-      LEFT JOIN users u ON o.user_id = u.id
-      LEFT JOIN invoice i ON o.order_id = i.order_id
+      LEFT JOIN users u ON o.user_id::text = u.id::text
+      LEFT JOIN invoice i ON o.order_id::text = i.order_id::text
       WHERE ${dateCondition}
         AND o.status != 'Cancelled'
+        AND LOWER(COALESCE(o.payment_type, '')) NOT IN ('cash', 'cod')
+        AND (o.order_number IS NULL OR NOT (o.order_number LIKE 'CSH-%'))
+        AND NOT EXISTS (
+          SELECT 1 FROM invoice i2 
+          WHERE i2.order_id::text = o.order_id::text 
+            AND i2.invoice_number LIKE 'CSH-%'
+        )
         AND (
           (o.pst_number IS NOT NULL AND o.pst_number != '' AND o.pst_number != '0')
           OR (u.pst_number IS NOT NULL AND u.pst_number != '' AND u.pst_number != '0')
           OR o.pst_exempt = true
+          OR COALESCE(u.pst_exempt, false) = true
           OR CAST(COALESCE(o.pst_amount, '0') AS NUMERIC) = 0
-          OR 1=1
         )
       ORDER BY COALESCE(o.order_date, o.created_at) DESC
     `;

@@ -25,6 +25,8 @@ const ensureSizingColumnsExist = async () => {
     await db.query(`ALTER TABLE invoice ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12, 2) DEFAULT 0;`);
 
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_number VARCHAR(100);`);
+    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_type VARCHAR(50) DEFAULT 'order';`);
+    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_quotation BOOLEAN DEFAULT FALSE;`);
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS po_number VARCHAR(100);`);
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_date DATE DEFAULT CURRENT_DATE;`);
     await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_date DATE;`);
