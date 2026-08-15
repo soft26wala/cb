@@ -284,6 +284,29 @@ class OrderController {
       next(error);
     }
   }
+
+  static async updateShippingDate(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { shipping_date, delivery_date } = req.body;
+      const targetDate = shipping_date !== undefined ? shipping_date : delivery_date;
+
+      const updatedOrder = await OrderModel.updateShippingDate(id, targetDate);
+
+      await recordHistory({
+        userId: req.user ? req.user.id : null,
+        action: 'UPDATE',
+        tableName: 'orders',
+        recordId: id,
+        newData: { shipping_date: targetDate },
+        ipAddress: req.ip,
+      }).catch(() => {});
+
+      return successResponse(res, 'Shipping date updated successfully', updatedOrder);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 module.exports = OrderController;

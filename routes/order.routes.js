@@ -28,6 +28,9 @@ router.get('/:id/invoice', verifyToken, OrderController.getInvoiceByOrderId);
 
 router.put('/:id/status', verifyToken, OrderController.updateOrderStatus);
 router.put('/:id/delivery-discount', verifyToken, OrderController.updateDeliveryAndDiscount);
+router.put('/:id/shipping-date', verifyToken, OrderController.updateShippingDate);
+router.put('/:id/delivery-date', verifyToken, OrderController.updateShippingDate);
+
 router.post(
   '/:id/payment',
   verifyToken,

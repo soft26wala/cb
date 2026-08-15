@@ -910,6 +910,33 @@ class OrderModel {
     return await this.findById(orderId, queryRunner);
   }
 
+  static async updateShippingDate(orderId, shippingDate, client = null) {
+    const queryRunner = client || db;
+
+    try {
+      await queryRunner.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_date DATE;`);
+      await queryRunner.query(`ALTER TABLE invoice ADD COLUMN IF NOT EXISTS shipping_date DATE;`);
+      await queryRunner.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_date DATE;`);
+      await queryRunner.query(`ALTER TABLE invoice ADD COLUMN IF NOT EXISTS delivery_date DATE;`);
+    } catch (e) {
+      console.warn('Shipping date migration warning:', e.message);
+    }
+
+    const formattedDate = shippingDate ? new Date(shippingDate) : null;
+
+    await queryRunner.query(
+      `UPDATE orders SET delivery_date = $1, shipping_date = $1, updated_at = CURRENT_TIMESTAMP WHERE order_id = $2`,
+      [formattedDate, orderId]
+    );
+
+    await queryRunner.query(
+      `UPDATE invoice SET delivery_date = $1, shipping_date = $1 WHERE order_id = $2 OR invoice_id = $2`,
+      [formattedDate, orderId]
+    );
+
+    return await this.findById(orderId, queryRunner);
+  }
+
   static async findById(id, client = null) {
     const queryRunner = client || db;
     const orderQuery = `

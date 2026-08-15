@@ -2,18 +2,29 @@ const Stripe = require('stripe');
 require('dotenv').config();
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-const stripe = stripeSecretKey ? new Stripe(stripeSecretKey) : null;
+const stripe = (stripeSecretKey && !stripeSecretKey.includes('your_stripe_secret_key')) ? new Stripe(stripeSecretKey) : null;
 
 /**
  * Create Stripe Checkout Session or Payment Link for an order credit/balance amount
  * @param {Object} order - Order object containing order_id, order_number, total_amount, credit_amount, customer_name, customer_email
- * @returns {Promise<{ sessionId: string, url: string, isDemo: boolean }>}
+ * @returns {Promise<{ sessionId: string, url: string, isDemo: boolean } >}
  */
 async function createCheckoutSession(order) {
+  if (!order) {
+    throw new Error('Order is required for Stripe Checkout');
+  }
+
+  const orderId = order.order_id || order.id || 'ORDER';
+  const orderNum = order.order_number || order.invoice_number || String(orderId).slice(0, 8);
+  const rawAmount = parseFloat(order.credit_amount !== undefined ? order.credit_amount : (order.remaining_amount !== undefined ? order.remaining_amount : (order.total_amount || 0))) || 0;
+  const amountInCents = Math.round(rawAmount * 100);
+  const customerEmail = order.customer_email || order.email || order.user_email || undefined;
+
   const publicBaseUrl = process.env.PUBLIC_PAYMENT_URL || process.env.BACKEND_PUBLIC_URL || process.env.FRONTEND_URL || 'http://localhost:3000';
+  const frontendUrl = process.env.FRONTEND_URL || publicBaseUrl;
   const isLocal = publicBaseUrl.includes('localhost') || publicBaseUrl.includes('127.0.0.1');
 
-  if (stripe && stripeSecretKey && !stripeSecretKey.includes('your_stripe_secret_key')) {
+  if (stripe) {
     try {
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ['card'],
@@ -22,10 +33,10 @@ async function createCheckoutSession(order) {
             price_data: {
               currency: (process.env.STRIPE_CURRENCY || 'cad').toLowerCase(),
               product_data: {
-                name: `Invoice / Order #${orderNum}`,
-                description: `Payment for Cabinet Doors Order #${orderNum}`,
+                name: 'Invoice / Order #' + orderNum,
+                description: 'Payment for Cabinet Doors Order #' + orderNum,
               },
-              unit_amount: Math.max(100, amountInCents), // Min 1.00
+              unit_amount: Math.max(100, amountInCents),
             },
             quantity: 1,
           },
@@ -33,30 +44,30 @@ async function createCheckoutSession(order) {
         mode: 'payment',
         customer_email: customerEmail,
         metadata: {
-          order_id: String(order.order_id),
+          order_id: String(orderId),
           order_number: String(orderNum),
           credit_amount: String(rawAmount.toFixed(2)),
         },
         success_url: isLocal
-          ? `${frontendUrl}/invoices?payment=success&order_id=${order.order_id}&session_id={CHECKOUT_SESSION_ID}`
-          : `${publicBaseUrl}/invoices?payment=success&order_id=${order.order_id}&session_id={CHECKOUT_SESSION_ID}`,
+          ? frontendUrl + '/invoices?payment=success&order_id=' + orderId + '&session_id={CHECKOUT_SESSION_ID}'
+          : publicBaseUrl + '/invoices?payment=success&order_id=' + orderId + '&session_id={CHECKOUT_SESSION_ID}',
         cancel_url: isLocal
-          ? `${frontendUrl}/invoices?payment=cancelled&order_id=${order.order_id}`
-          : `${publicBaseUrl}/invoices?payment=cancelled&order_id=${order.order_id}`,
+          ? frontendUrl + '/invoices?payment=cancelled&order_id=' + orderId
+          : publicBaseUrl + '/invoices?payment=cancelled&order_id=' + orderId,
       });
 
       return {
         sessionId: session.id,
-        url: session.url, // Real public https://checkout.stripe.com/... URL
+        url: session.url,
         isDemo: false,
       };
     } catch (err) {
       console.warn('Stripe Checkout Session creation error:', err.message);
       const demoUrl = isLocal
-        ? `https://buy.stripe.com/pay?order=${order.order_id}&amount=${rawAmount.toFixed(2)}`
-        : `${publicBaseUrl}/invoices?pay_order=${order.order_id}&amount=${rawAmount.toFixed(2)}`;
+        ? 'https://buy.stripe.com/pay?order=' + orderId + '&amount=' + rawAmount.toFixed(2)
+        : publicBaseUrl + '/invoices?pay_order=' + orderId + '&amount=' + rawAmount.toFixed(2);
       return {
-        sessionId: `demo_session_${Date.now()}`,
+        sessionId: 'demo_session_' + Date.now(),
         url: demoUrl,
         isDemo: true,
         error: err.message,
@@ -64,12 +75,11 @@ async function createCheckoutSession(order) {
     }
   }
 
-  // Fallback mode URL if Stripe API Key is not configured
   const demoUrl = isLocal
-    ? `https://buy.stripe.com/pay?order=${order.order_id}&amount=${rawAmount.toFixed(2)}`
-    : `${publicBaseUrl}/invoices?pay_order=${order.order_id}&amount=${rawAmount.toFixed(2)}`;
+    ? 'https://buy.stripe.com/pay?order=' + orderId + '&amount=' + rawAmount.toFixed(2)
+    : publicBaseUrl + '/invoices?pay_order=' + orderId + '&amount=' + rawAmount.toFixed(2);
   return {
-    sessionId: `demo_session_${Date.now()}`,
+    sessionId: 'demo_session_' + Date.now(),
     url: demoUrl,
     isDemo: true,
   };
@@ -77,9 +87,6 @@ async function createCheckoutSession(order) {
 
 /**
  * Verify Stripe webhook signature
- * @param {Buffer} rawBody 
- * @param {string} signature 
- * @returns {Object} Stripe Event
  */
 function constructWebhookEvent(rawBody, signature) {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
