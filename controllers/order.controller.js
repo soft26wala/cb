@@ -285,6 +285,32 @@ class OrderController {
     }
   }
 
+  static async updateShipTo(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { ship_to_name, ship_to_address, delivery_notes } = req.body;
+
+      const updatedOrder = await OrderModel.updateShipTo(id, {
+        ship_to_name,
+        ship_to_address,
+        delivery_notes,
+      });
+
+      await recordHistory({
+        userId: req.user ? req.user.id : null,
+        action: 'UPDATE',
+        tableName: 'orders',
+        recordId: id,
+        newData: { ship_to_name, ship_to_address, delivery_notes },
+        ipAddress: req.ip,
+      }).catch(() => {});
+
+      return successResponse(res, 'Ship To delivery details updated successfully', updatedOrder);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   static async updateShippingDate(req, res, next) {
     try {
       const { id } = req.params;

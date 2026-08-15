@@ -910,6 +910,33 @@ class OrderModel {
     return await this.findById(orderId, queryRunner);
   }
 
+  static async updateShipTo(orderId, { ship_to_name, ship_to_address, delivery_notes }, client = null) {
+    const queryRunner = client || db;
+
+    try {
+      await queryRunner.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS ship_to_name VARCHAR(255);`);
+      await queryRunner.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS ship_to_address TEXT;`);
+      await queryRunner.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_notes TEXT;`);
+      await queryRunner.query(`ALTER TABLE invoice ADD COLUMN IF NOT EXISTS ship_to_name VARCHAR(255);`);
+      await queryRunner.query(`ALTER TABLE invoice ADD COLUMN IF NOT EXISTS ship_to_address TEXT;`);
+      await queryRunner.query(`ALTER TABLE invoice ADD COLUMN IF NOT EXISTS delivery_notes TEXT;`);
+    } catch (e) {
+      console.warn('Ship To columns migration warning:', e.message);
+    }
+
+    await queryRunner.query(
+      `UPDATE orders SET ship_to_name = $1, ship_to_address = $2, delivery_notes = $3, updated_at = CURRENT_TIMESTAMP WHERE order_id = $4`,
+      [ship_to_name || null, ship_to_address || null, delivery_notes || null, orderId]
+    );
+
+    await queryRunner.query(
+      `UPDATE invoice SET ship_to_name = $1, ship_to_address = $2, delivery_notes = $3 WHERE order_id = $4 OR invoice_id = $4`,
+      [ship_to_name || null, ship_to_address || null, delivery_notes || null, orderId]
+    );
+
+    return await this.findById(orderId, queryRunner);
+  }
+
   static async updateShippingDate(orderId, shippingDate, client = null) {
     const queryRunner = client || db;
 
