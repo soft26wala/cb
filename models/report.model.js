@@ -4,7 +4,7 @@ const { getDateRangeFilter } = require('../services/tax.service');
 class ReportModel {
   static async getGstReport(filterType, customStartDate, customEndDate) {
     try {
-      const { dateCondition, params } = getDateRangeFilter(filterType, customStartDate, customEndDate, 'o.created_at');
+      const { dateCondition, params } = getDateRangeFilter(filterType, customStartDate, customEndDate, 'COALESCE(i.created_at, o.order_date, o.created_at)');
 
       const summaryQuery = `
         SELECT
@@ -13,6 +13,7 @@ class ReportModel {
           GREATEST(0.00, COALESCE(SUM(COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00)), 0.00) - COALESCE((SELECT SUM(COALESCE(gst_reduced, amount_lost * 0.05)) FROM delivery_memos WHERE status = 'Credit' OR status = 'Approved' OR status = 'Resolved'), 0.00)) as total_gst_collected,
           COALESCE(SUM(o.total_amount), 0.00) as total_order_amount
         FROM orders o
+        LEFT JOIN invoice i ON i.order_id::text = o.order_id::text
         WHERE ${dateCondition} 
           AND o.status != 'Cancelled'
           AND LOWER(COALESCE(o.payment_type, '')) NOT IN ('cash', 'cod')

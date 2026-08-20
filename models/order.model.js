@@ -481,36 +481,8 @@ class OrderModel {
       const isTaxOff = (orderPayload.gst_amount !== undefined && Number(orderPayload.gst_amount) === 0) ||
         (isCashOrder && !isCashTaxIncluded);
 
-      const targetPrefix = isTaxOff ? 'CSH-' : 'INV-';
-      let generatedInvoiceNumber = orderPayload.invoice_number || orderPayload.invoiceNumber;
-
-      if (!generatedInvoiceNumber || String(generatedInvoiceNumber).trim() === '') {
-        const countRes = await queryRunner.query(
-          `SELECT COUNT(*) as count FROM invoice WHERE invoice_number LIKE $1`,
-          [`${targetPrefix}${year}-%`]
-        );
-        const nextSeq = (parseInt(countRes.rows[0]?.count || 0, 10) + 1).toString().padStart(4, '0');
-        generatedInvoiceNumber = `${targetPrefix}${year}-${nextSeq}`;
-      }
-
-      const invoicePaymentStatus = creditAmount === 0 ? 'Paid' : finalPaidAmount > 0 ? 'Partial' : 'Unpaid';
-
-      await queryRunner.query(
-        `INSERT INTO invoice (order_id, user_id, invoice_number, paid_amount, remaining_amount, payment_status, status, delivery_charge, discount_amount)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         ON CONFLICT (invoice_number) DO UPDATE SET paid_amount = EXCLUDED.paid_amount, remaining_amount = EXCLUDED.remaining_amount, payment_status = EXCLUDED.payment_status, delivery_charge = EXCLUDED.delivery_charge, discount_amount = EXCLUDED.discount_amount`,
-        [
-          newOrder.order_id,
-          targetUserId,
-          generatedInvoiceNumber,
-          finalPaidAmount.toFixed(2),
-          creditAmount.toFixed(2),
-          invoicePaymentStatus,
-          'Issued',
-          deliveryCharge.toFixed(2),
-          discountAmount.toFixed(2),
-        ]
-      );
+      // NOTE: Invoices are NO LONGER created automatically upon order creation.
+      // Invoices are created on-demand when Admin or Employee clicks "Create Invoice".
     } catch (e) {
       console.warn('Auto invoice creation warning:', e.message);
     }

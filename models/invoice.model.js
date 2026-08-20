@@ -2,6 +2,55 @@ const db = require('../config/db');
 const CompanyCredentialsModel = require('./companyCredentials.model');
 
 class InvoiceModel {
+  static async generateInvoiceFromOrder(orderId, { invoiceDate, createdBy } = {}) {
+    const orderRes = await db.query(`SELECT * FROM orders WHERE order_id = $1`, [orderId]);
+    if (!orderRes.rows[0]) throw new Error('Order not found');
+    const order = orderRes.rows[0];
+
+    const targetDate = invoiceDate ? new Date(invoiceDate) : new Date();
+    const year = targetDate.getFullYear();
+    const isCash = Boolean((order.payment_type || '').toLowerCase().includes('cash'));
+    const isTaxOff = Number(order.gst_amount || 0) === 0;
+    const isCashMemo = (isCash && isTaxOff);
+    const targetPrefix = isCashMemo ? 'CSH-' : 'INV-';
+
+    const existingRes = await db.query(`SELECT * FROM invoice WHERE order_id = $1`, [orderId]);
+    let inv = existingRes.rows[0];
+
+    let invNumber = inv ? inv.invoice_number : null;
+    if (!invNumber) {
+      const countRes = await db.query(
+        `SELECT COUNT(*) as count FROM invoice WHERE invoice_number LIKE $1`,
+        [`${targetPrefix}${year}-%`]
+      );
+      const nextSeq = (parseInt(countRes.rows[0]?.count || 0, 10) + 1).toString().padStart(4, '0');
+      invNumber = `${targetPrefix}${year}-${nextSeq}`;
+    }
+
+    const paidAmount = parseFloat(order.paid_amount || 0);
+    const creditAmount = parseFloat(order.credit_amount || (order.total_amount - paidAmount));
+    const paymentStatus = creditAmount <= 0 ? 'Paid' : paidAmount > 0 ? 'Partial' : 'Unpaid';
+
+    if (inv) {
+      const updateRes = await db.query(
+        `UPDATE invoice 
+         SET invoice_number = $1, paid_amount = $2, remaining_amount = $3, payment_status = $4, status = 'Issued', created_at = $5, updated_at = CURRENT_TIMESTAMP
+         WHERE invoice_id = $6
+         RETURNING *`,
+        [invNumber, paidAmount, creditAmount, paymentStatus, targetDate, inv.invoice_id]
+      );
+      return updateRes.rows[0];
+    } else {
+      const insertRes = await db.query(
+        `INSERT INTO invoice (order_id, user_id, invoice_number, paid_amount, remaining_amount, payment_status, status, delivery_charge, discount_amount, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         RETURNING *`,
+        [orderId, order.user_id, invNumber, paidAmount, creditAmount, paymentStatus, 'Issued', parseFloat(order.delivery_charge || 0), parseFloat(order.discount_amount || 0), targetDate]
+      );
+      return insertRes.rows[0];
+    }
+  }
+
   static async findByOrderId(orderId) {
     const query = `
       SELECT i.*, COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name, COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, u.mobile_number as customer_mobile,

@@ -6,6 +6,8 @@ const { verifyToken } = require('../middleware/auth.middleware');
 const router = express.Router();
 
 // One-Click Invoice Email sending via Gmail API
+router.post('/generate', verifyToken, InvoiceController.createInvoiceFromOrder);
+router.post('/from-order/:orderId', verifyToken, InvoiceController.createInvoiceFromOrder);
 router.post('/:invoiceId/send', verifyToken, InvoiceController.sendInvoice);
 
 // Invoice management routes

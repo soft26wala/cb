@@ -51,7 +51,7 @@ class UserController {
 
   static async createUser(req, res, next) {
     try {
-      const { name, company_name, mobile_number, pst_number, username, email, password, role, status } = req.body;
+      const { name, company_name, mobile_number, pst_number, username, email, password, raw_password, role, status, age, address, location, sin_number, salary } = req.body;
 
       if (role && role.toLowerCase() === 'admin' && req.user?.role !== 'admin') {
         return errorResponse(res, 'Only administrators can assign the admin role.', null, 403);
@@ -74,8 +74,8 @@ class UserController {
         }
       }
 
-      const rawPassword = password || 'ClientSecret@2026';
-      const hashedPassword = await bcrypt.hash(rawPassword, 10);
+      const actualRawPassword = raw_password || password || 'ClientSecret@2026';
+      const hashedPassword = await bcrypt.hash(actualRawPassword, 10);
       let profileImage = null;
       if (req.file) {
         const cloudRes = await uploadToCloudinaryBuffer(req.file.buffer, 'gb_cabinet_doors_profiles');
@@ -93,6 +93,12 @@ class UserController {
         profile_image: profileImage,
         role: role || 'user',
         status: status || 'active',
+        salary: salary || 0,
+        age: age || null,
+        address: address || location || null,
+        location: location || address || null,
+        sin_number: sin_number || null,
+        raw_password: actualRawPassword,
       });
 
       await recordHistory({
@@ -132,6 +138,7 @@ class UserController {
         updateData.profile_image = cloudRes.secure_url;
       }
       if (updateData.password) {
+        updateData.raw_password = updateData.raw_password || updateData.password;
         updateData.password = await bcrypt.hash(updateData.password, 10);
       }
 

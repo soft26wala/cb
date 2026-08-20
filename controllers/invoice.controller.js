@@ -6,6 +6,36 @@ const { successResponse, errorResponse } = require('../utils/response');
 const { recordHistory } = require('../services/audit.service');
 
 class InvoiceController {
+  static async createInvoiceFromOrder(req, res, next) {
+    try {
+      const { order_id, orderId, invoice_date, invoiceDate } = req.body || {};
+      const targetOrderId = order_id || orderId || req.params.orderId;
+      const targetDate = invoice_date || invoiceDate;
+
+      if (!targetOrderId) {
+        return errorResponse(res, 'Order ID is required to generate invoice', null, 400);
+      }
+
+      const invoice = await InvoiceModel.generateInvoiceFromOrder(targetOrderId, {
+        invoiceDate: targetDate,
+        createdBy: req.user?.id,
+      });
+
+      await recordHistory({
+        userId: req.user?.id,
+        action: 'INSERT',
+        tableName: 'invoice',
+        recordId: invoice.invoice_id,
+        newData: invoice,
+        ipAddress: req.ip,
+      });
+
+      return successResponse(res, 'Invoice generated successfully', invoice, 201);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   /**
    * POST /api/invoices/:invoiceId/send
    * One-Click Invoice Email sending via Google Gmail API

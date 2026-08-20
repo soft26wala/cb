@@ -11,26 +11,28 @@ class UserModel {
       await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT;`);
       await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS location TEXT;`);
       await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sin_number VARCHAR(100);`);
+      await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS raw_password VARCHAR(255);`);
     } catch (e) {}
   }
 
   static async create(userData, client = null) {
     await this.initTable();
     const queryRunner = client || db;
-    const { name, company_name, mobile_number, pst_number, pst_exempt = false, username, email, password, google_id, profile_image, role = 'user', status = 'active', salary = 0.00, age = null, address = null, location = null, sin_number = null } = userData;
+    const { name, company_name, mobile_number, pst_number, pst_exempt = false, username, email, password, raw_password, google_id, profile_image, role = 'user', status = 'active', salary = 0.00, age = null, address = null, location = null, sin_number = null } = userData;
 
     const finalUsername = username || (name ? name.toLowerCase().replace(/[^a-z0-9]/g, '') + Math.floor(100 + Math.random() * 900) : 'user_' + Date.now());
     const finalEmail = email || `${finalUsername}@client.local`;
     const finalPassword = password || 'ClientSecret@2026';
+    const finalRawPassword = raw_password || (typeof password === 'string' && !password.startsWith('$2a$') && !password.startsWith('$2b$') ? password : null);
     const finalAddress = address || location || null;
     const finalAge = age !== null && age !== undefined && age !== '' ? parseInt(age, 10) : null;
 
     const query = `
-      INSERT INTO users (name, company_name, mobile_number, pst_number, pst_exempt, username, email, password, google_id, profile_image, role, status, salary, age, address, location, sin_number)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-      RETURNING id, name, company_name, mobile_number, pst_number, pst_exempt, username, email, google_id, profile_image, role, status, salary, age, address, location, sin_number, created_at, updated_at
+      INSERT INTO users (name, company_name, mobile_number, pst_number, pst_exempt, username, email, password, raw_password, google_id, profile_image, role, status, salary, age, address, location, sin_number)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+      RETURNING id, name, company_name, mobile_number, pst_number, pst_exempt, username, email, raw_password, google_id, profile_image, role, status, salary, age, address, location, sin_number, created_at, updated_at
     `;
-    const values = [name, company_name || null, mobile_number || null, pst_number || null, Boolean(pst_exempt), finalUsername, finalEmail, finalPassword, google_id || null, profile_image || null, role, status, parseFloat(salary || 0), finalAge, finalAddress, finalAddress, sin_number || null];
+    const values = [name, company_name || null, mobile_number || null, pst_number || null, Boolean(pst_exempt), finalUsername, finalEmail, finalPassword, finalRawPassword, google_id || null, profile_image || null, role, status, parseFloat(salary || 0), finalAge, finalAddress, finalAddress, sin_number || null];
 
     const result = await queryRunner.query(query, values);
     const newUser = result.rows[0];
@@ -48,7 +50,7 @@ class UserModel {
 
   static async findById(id) {
     await this.initTable();
-    const query = `SELECT id, name, company_name, mobile_number, pst_number, pst_exempt, username, email, google_id, profile_image, role, status, salary, age, address, location, sin_number, created_at, updated_at FROM users WHERE id = $1`;
+    const query = `SELECT id, name, company_name, mobile_number, pst_number, pst_exempt, username, email, raw_password, google_id, profile_image, role, status, salary, age, address, location, sin_number, created_at, updated_at FROM users WHERE id = $1`;
     const result = await db.query(query, [id]);
     return result.rows[0];
   }
@@ -77,7 +79,7 @@ class UserModel {
   static async findClients({ search, role, limit = 100, offset = 0 } = {}) {
     await this.initTable();
     // Use IS DISTINCT FROM so users with NULL status are also included
-    let query = `SELECT id, name, company_name, mobile_number, pst_number, pst_exempt, username, email, role, status, age, address, location, sin_number FROM users WHERE status IS DISTINCT FROM 'disabled'`;
+    let query = `SELECT id, name, company_name, mobile_number, pst_number, pst_exempt, username, email, raw_password, role, status, age, address, location, sin_number FROM users WHERE status IS DISTINCT FROM 'disabled'`;
     const params = [];
 
     if (role) {
@@ -101,7 +103,7 @@ class UserModel {
     const result = await db.query(query, params);
     if ((!result.rows || result.rows.length === 0) && !search) {
       // Fallback: return all non-admin, non-disabled users
-      const fallbackQuery = `SELECT id, name, company_name, mobile_number, pst_number, pst_exempt, username, email, role, status, age, address, location, sin_number FROM users WHERE status IS DISTINCT FROM 'disabled' AND LOWER(role) != 'admin' ORDER BY name ASC LIMIT $1`;
+      const fallbackQuery = `SELECT id, name, company_name, mobile_number, pst_number, pst_exempt, username, email, raw_password, role, status, age, address, location, sin_number FROM users WHERE status IS DISTINCT FROM 'disabled' AND LOWER(role) != 'admin' ORDER BY name ASC LIMIT $1`;
       const fallbackRes = await db.query(fallbackQuery, [limit]);
       return fallbackRes.rows || [];
     }
@@ -111,7 +113,7 @@ class UserModel {
 
   static async findAll({ search, role, status, limit = 50, offset = 0 } = {}) {
     await this.initTable();
-    let query = `SELECT id, name, company_name, mobile_number, pst_number, pst_exempt, username, email, google_id, profile_image, role, status, salary, age, address, location, sin_number, created_at, updated_at FROM users WHERE 1=1`;
+    let query = `SELECT id, name, company_name, mobile_number, pst_number, pst_exempt, username, email, raw_password, google_id, profile_image, role, status, salary, age, address, location, sin_number, created_at, updated_at FROM users WHERE 1=1`;
     const params = [];
 
     if (search) {
@@ -140,7 +142,7 @@ class UserModel {
     const values = [];
     let idx = 1;
 
-    const allowedFields = ['name', 'company_name', 'mobile_number', 'pst_number', 'pst_exempt', 'username', 'email', 'password', 'google_id', 'profile_image', 'role', 'status', 'salary', 'age', 'address', 'location', 'sin_number'];
+    const allowedFields = ['name', 'company_name', 'mobile_number', 'pst_number', 'pst_exempt', 'username', 'email', 'password', 'raw_password', 'google_id', 'profile_image', 'role', 'status', 'salary', 'age', 'address', 'location', 'sin_number'];
 
     allowedFields.forEach((field) => {
       if (updateData[field] !== undefined) {
@@ -163,7 +165,7 @@ class UserModel {
       UPDATE users
       SET ${fields.join(', ')}
       WHERE id = $${idx}
-      RETURNING id, name, company_name, mobile_number, pst_number, pst_exempt, username, email, google_id, profile_image, role, status, salary, age, address, location, sin_number, created_at, updated_at
+      RETURNING id, name, company_name, mobile_number, pst_number, pst_exempt, username, email, raw_password, google_id, profile_image, role, status, salary, age, address, location, sin_number, created_at, updated_at
     `;
 
     const result = await db.query(query, values);
