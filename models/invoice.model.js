@@ -242,6 +242,7 @@ class InvoiceModel {
       }
     }
 
+    invoices.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
     return invoices;
   }
 

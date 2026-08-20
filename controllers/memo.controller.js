@@ -53,6 +53,9 @@ const createMemo = async (req, res) => {
       return errorResponse(res, 'Reason is required for memo', null, 400);
     }
 
+    const targetOrderId = order_id && String(order_id).trim() !== '' ? String(order_id).trim() : null;
+    const targetCustomerId = customer_id && String(customer_id).trim() !== '' && String(customer_id).length > 10 ? String(customer_id).trim() : null;
+
     const memo_number = `MEMO-${Date.now().toString().slice(-6)}`;
     const photosJson = JSON.stringify(photos || []);
 
@@ -61,15 +64,15 @@ const createMemo = async (req, res) => {
     const credAmtVal = credit_amount !== undefined && credit_amount !== '' ? parseFloat(credit_amount) : parseFloat((amtVal * (pctVal / 100)).toFixed(2));
     const gstRedVal = parseFloat((credAmtVal * 0.05).toFixed(2));
     const pstRedVal = parseFloat((credAmtVal * 0.07).toFixed(2));
-    const finalStatus = status || 'Pending';
+    const finalStatus = status || 'Credit';
 
     const result = await db.query(
       `INSERT INTO delivery_memos (memo_number, order_id, customer_id, reason, photos, driver_notes, amount_lost, credit_percentage, credit_amount, gst_reduced, pst_reduced, courier_name, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
       [
         memo_number,
-        order_id || null,
-        customer_id || null,
+        targetOrderId,
+        targetCustomerId,
         reason,
         photosJson,
         driver_notes || '',
@@ -83,15 +86,22 @@ const createMemo = async (req, res) => {
       ]
     );
 
-    // Audit log
-    await db.query(
-      `INSERT INTO history (user_id, action, table_name, record_id, new_data) VALUES ($1, 'INSERT', 'delivery_memos', $2, $3)`,
-      [req.user?.id, memo_number, JSON.stringify(result.rows[0])]
-    );
+    const savedRow = (result && result.rows && result.rows[0])
+      ? result.rows[0]
+      : (Array.isArray(result) && result[0] ? result[0] : { memo_number, reason, amount_lost: amtVal, credit_amount: credAmtVal, status: finalStatus });
 
-    return successResponse(res, 'Memo created successfully', result.rows[0], 201);
+    // Non-blocking Audit Log
+    try {
+      await db.query(
+        `INSERT INTO history (user_id, action, table_name, record_id, new_data) VALUES ($1, 'INSERT', 'delivery_memos', $2, $3)`,
+        [req.user?.id || null, memo_number, JSON.stringify(savedRow)]
+      );
+    } catch (e) {}
+
+    return successResponse(res, 'Memo created successfully', savedRow, 201);
   } catch (error) {
-    return errorResponse(res, 'Failed to create memo', error.message, 500);
+    console.error('Failed to create memo error:', error);
+    return errorResponse(res, 'Failed to create memo: ' + error.message, error.message, 500);
   }
 };
 

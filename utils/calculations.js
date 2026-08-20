@@ -54,30 +54,22 @@ const calculateSizingRow = ({
   measurementUnit = 'INCH',
 }) => {
   const qty = parseInt(quantity, 10) || 1;
-  const dh = parseFloat(doorHeight) || 0;
-  const dw = parseFloat(doorWidth) || 0;
+  const dh = Math.max(0.1, parseFloat(doorHeight) || 0);
+  const dw = Math.max(0.1, parseFloat(doorWidth) || 0);
   const rs = parseFloat(railSize) || 2.25;
 
-  if (dh <= 0 || dw <= 0) {
-    throw new Error('Door height and door width must be greater than zero.');
-  }
-
   const doubleRail = rs * 2;
-  if (dw <= doubleRail || dh <= doubleRail) {
-    throw new Error(`Door size (${dh}x${dw}) is too small for the selected rail size (${rs}).`);
-  }
-
   const isMM = (measurementUnit || 'INCH').toUpperCase() === 'MM';
   const allowance = isMM ? 19.05 : 0.75;
   const decimals = isMM ? 2 : 3;
 
-  const panelHeight = dh - doubleRail + allowance;
-  const panelWidth = dw - doubleRail + allowance;
+  const panelHeight = Math.max(0, dh - doubleRail + allowance);
+  const panelWidth = Math.max(0, dw - doubleRail + allowance);
 
   const stileLength = dh;
   const stileQuantity = qty * 2;
 
-  const railLength = dw - doubleRail;
+  const railLength = Math.max(0, dw - doubleRail);
   const railQuantity = qty * 2;
 
   return {
