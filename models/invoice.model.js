@@ -184,8 +184,7 @@ class InvoiceModel {
       FROM invoice i
       LEFT JOIN users u ON i.user_id = u.id
       LEFT JOIN orders o ON i.order_id = o.order_id
-      WHERE (i.invoice_number IS NULL OR NOT (i.invoice_number LIKE 'CSH-%'))
-        AND NOT (LOWER(COALESCE(o.payment_type, '')) LIKE '%cash%' AND COALESCE(o.gst_amount, 0) = 0)
+      WHERE 1=1
     `;
     const params = [];
 
