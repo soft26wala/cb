@@ -2,7 +2,14 @@ const db = require('../config/db');
 const CompanyCredentialsModel = require('./companyCredentials.model');
 
 class InvoiceModel {
+  static async initTable() {
+    try {
+      await db.query(`ALTER TABLE invoice ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;`);
+    } catch (e) {}
+  }
+
   static async generateInvoiceFromOrder(orderId, { invoiceDate, createdBy } = {}) {
+    await this.initTable();
     const orderRes = await db.query(`SELECT * FROM orders WHERE order_id = $1`, [orderId]);
     if (!orderRes.rows[0]) throw new Error('Order not found');
     const order = orderRes.rows[0];
@@ -34,7 +41,7 @@ class InvoiceModel {
     if (inv) {
       const updateRes = await db.query(
         `UPDATE invoice 
-         SET invoice_number = $1, paid_amount = $2, remaining_amount = $3, payment_status = $4, status = 'Issued', created_at = $5, updated_at = CURRENT_TIMESTAMP
+         SET invoice_number = $1, paid_amount = $2, remaining_amount = $3, payment_status = $4, status = 'Issued', created_at = $5
          WHERE invoice_id = $6
          RETURNING *`,
         [invNumber, paidAmount, creditAmount, paymentStatus, targetDate, inv.invoice_id]
