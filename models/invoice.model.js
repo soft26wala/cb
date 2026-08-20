@@ -85,6 +85,10 @@ class InvoiceModel {
       [orderId]
     );
     inv.items = itemsRes.rows || [];
+    if (!inv.items || inv.items.length === 0) {
+      const sizingRes = await db.query(`SELECT osi.*, c.category_name FROM order_sizing_items osi LEFT JOIN category c ON osi.category_id = c.category_id WHERE osi.order_id = $1 ORDER BY osi.sort_order ASC`, [inv.order_id || orderId]);
+      inv.items = sizingRes.rows || [];
+    }
 
     return inv;
   }
