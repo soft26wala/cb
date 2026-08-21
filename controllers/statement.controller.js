@@ -132,6 +132,44 @@ class StatementController {
       const paymentsRes = await db.query(paymentsQuery, paymentParams);
       const payments = paymentsRes.rows || [];
 
+      // 4. Fetch Delivery Memos (Credit Loss Off) for this Client
+      const memoParams = [];
+      let memoWhereClauses = [];
+
+      if (userId && userId !== 'null' && userId !== 'undefined') {
+        memoParams.push(String(userId));
+        memoWhereClauses.push(`m.customer_id::text = $${memoParams.length}`);
+        memoWhereClauses.push(`o.user_id::text = $${memoParams.length}`);
+      }
+
+      if (nameToMatch && nameToMatch.trim() && nameToMatch !== 'Valued Client') {
+        memoParams.push(`%${nameToMatch.trim()}%`);
+        memoWhereClauses.push(`o.custom_client_name ILIKE $${memoParams.length}`);
+        memoWhereClauses.push(`u.name ILIKE $${memoParams.length}`);
+      }
+
+      if (clientInfo.company_name && clientInfo.company_name.trim()) {
+        memoParams.push(`%${clientInfo.company_name.trim()}%`);
+        memoWhereClauses.push(`o.custom_client_name ILIKE $${memoParams.length}`);
+        memoWhereClauses.push(`u.company_name ILIKE $${memoParams.length}`);
+      }
+
+      let memosQuery = `
+        SELECT m.memo_id, m.memo_number, m.order_id, m.amount_lost, m.credit_percentage, m.credit_amount, m.gst_reduced, m.pst_reduced, m.reason, m.status, COALESCE(m.created_at, NOW()) as created_at, o.order_number
+        FROM delivery_memos m
+        LEFT JOIN orders o ON (m.order_id::text = o.order_id::text OR m.order_id::text = o.order_number::text OR REPLACE(o.order_number, '#', '') = m.order_id::text)
+        LEFT JOIN users u ON (m.customer_id::text = u.id::text OR o.user_id::text = u.id::text)
+        WHERE m.status IN ('Credit', 'Approved', 'Resolved', 'Pending')
+      `;
+
+      if (memoWhereClauses.length > 0) {
+        memosQuery += ` AND (${memoWhereClauses.join(' OR ')})`;
+      }
+
+      memosQuery += ` ORDER BY COALESCE(m.created_at, NOW()) ASC`;
+      const memosRes = await db.query(memosQuery, memoParams);
+      const memos = memosRes.rows || [];
+
       // Combine into unified transaction ledger list
       const allTxns = [];
 
@@ -194,6 +232,32 @@ class StatementController {
           debit: 0,
           credit: parseFloat(pay.amount || 0), // Paid (-)
           raw: pay,
+        });
+      });
+
+      memos.forEach((mem) => {
+        const memoDate = new Date(mem.created_at);
+        const credAmt = parseFloat(mem.credit_amount || 0);
+        const credPct = parseFloat(mem.credit_percentage || 100);
+        const gstOff = parseFloat(mem.gst_reduced || 0);
+
+        allTxns.push({
+          id: `memo-${mem.memo_id}`,
+          date: memoDate,
+          delivery_date: null,
+          delivery_date_formatted: '-',
+          type: 'CREDIT_MEMO',
+          status: mem.status || 'Credit',
+          reference: `${mem.memo_number}`,
+          po_number: '-',
+          description: `⚡ Delivery Damage Credit Memo — ${credPct}% Off on Order ${mem.order_number ? '#' + mem.order_number : ''} (GST Tax Reduced: -$${gstOff.toFixed(2)})`,
+          debit: 0,
+          credit: credAmt, // Credit Memo reduces balance owed (-)
+          memo_number: mem.memo_number,
+          order_number: mem.order_number,
+          credit_percentage: credPct,
+          gst_reduced: gstOff,
+          raw: mem,
         });
       });
 
