@@ -13,7 +13,7 @@ class ReportModel {
           COALESCE(SUM(GREATEST(0.00, COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00) - COALESCE(m.gst_reduced, CASE WHEN CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) >= 100 THEN COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00) ELSE (COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00) * (CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) / 100.0)) END, 0.00))), 0.00) as total_gst_collected,
           COALESCE(SUM(GREATEST(0.00, o.total_amount - COALESCE(m.credit_amount, (o.total_amount * (CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) / 100.0)), 0.00))), 0.00) as total_order_amount
         FROM orders o
-        INNER JOIN invoice i ON (i.order_id::text = o.order_id::text OR i.order_number::text = o.order_number::text OR REPLACE(i.order_number, 'INV-', '') = o.order_number::text)
+        LEFT JOIN invoice i ON (i.order_id::text = o.order_id::text OR i.order_number::text = o.order_number::text OR REPLACE(i.order_number, 'INV-', '') = o.order_number::text)
         LEFT JOIN (
           SELECT DISTINCT ON (order_id) order_id, credit_percentage, credit_amount, gst_reduced
           FROM delivery_memos
@@ -50,7 +50,7 @@ class ReportModel {
           COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name,
           i.invoice_number
         FROM orders o
-        INNER JOIN invoice i ON (i.order_id::text = o.order_id::text OR i.order_number::text = o.order_number::text OR REPLACE(i.order_number, 'INV-', '') = o.order_number::text)
+        LEFT JOIN invoice i ON (i.order_id::text = o.order_id::text OR i.order_number::text = o.order_number::text OR REPLACE(i.order_number, 'INV-', '') = o.order_number::text)
         LEFT JOIN users u ON o.user_id::text = u.id::text
         LEFT JOIN (
           SELECT DISTINCT ON (order_id) order_id, credit_percentage, credit_amount, gst_reduced
@@ -97,6 +97,7 @@ class ReportModel {
         total_amount: parseFloat(r.total_amount || 0),
         status: r.status,
         payment_type: r.payment_type || 'Credit',
+        memo_pct: parseFloat(r.memo_pct || 0),
       }));
 
       return {
@@ -136,7 +137,7 @@ class ReportModel {
           COALESCE(SUM(CASE WHEN o.pst_exempt = true OR COALESCE(u.pst_exempt, false) = true OR (o.pst_number IS NOT NULL AND o.pst_number != '' AND o.pst_number != '0') THEN o.subtotal ELSE 0 END), 0.00) as total_pst_exempt_sales,
           COALESCE(SUM(CASE WHEN o.pst_exempt = true OR COALESCE(u.pst_exempt, false) = true OR (o.pst_number IS NOT NULL AND o.pst_number != '' AND o.pst_number != '0') THEN o.subtotal * 0.07 ELSE 0 END), 0.00) as total_pst_saved
         FROM orders o
-        INNER JOIN invoice i ON (i.order_id::text = o.order_id::text OR i.order_number::text = o.order_number::text OR REPLACE(i.order_number, 'INV-', '') = o.order_number::text)
+        LEFT JOIN invoice i ON (i.order_id::text = o.order_id::text OR i.order_number::text = o.order_number::text OR REPLACE(i.order_number, 'INV-', '') = o.order_number::text)
         LEFT JOIN users u ON o.user_id::text = u.id::text
         LEFT JOIN (
           SELECT DISTINCT ON (order_id) order_id, credit_percentage, credit_amount, pst_reduced
@@ -176,7 +177,7 @@ class ReportModel {
           COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name,
           i.invoice_number
         FROM orders o
-        INNER JOIN invoice i ON (i.order_id::text = o.order_id::text OR i.order_number::text = o.order_number::text OR REPLACE(i.order_number, 'INV-', '') = o.order_number::text)
+        LEFT JOIN invoice i ON (i.order_id::text = o.order_id::text OR i.order_number::text = o.order_number::text OR REPLACE(i.order_number, 'INV-', '') = o.order_number::text)
         LEFT JOIN users u ON o.user_id::text = u.id::text
         LEFT JOIN (
           SELECT DISTINCT ON (order_id) order_id, credit_percentage, credit_amount, pst_reduced
@@ -231,6 +232,7 @@ class ReportModel {
           total_amount: parseFloat(r.total_amount || 0),
           status: r.status,
           payment_type: r.payment_type || 'Credit',
+          memo_pct: parseFloat(r.memo_pct || 0),
         };
       });
 
