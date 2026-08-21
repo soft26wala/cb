@@ -17,7 +17,7 @@ class ReportModel {
           COALESCE(SUM(GREATEST(0.00, COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00) - COALESCE(m.gst_reduced, CASE WHEN CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) >= 100 THEN COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00) ELSE (COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00) * (CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) / 100.0)) END, 0.00))), 0.00) as total_gst_collected,
           COALESCE(SUM(GREATEST(0.00, o.total_amount - COALESCE(m.credit_amount, (o.total_amount * (CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) / 100.0)), 0.00))), 0.00) as total_order_amount
         FROM orders o
-        LEFT JOIN invoice i ON (i.order_id::text = o.order_id::text OR i.invoice_number::text = o.order_number::text OR REPLACE(i.invoice_number, 'INV-', '') = o.order_number::text OR REPLACE(i.invoice_number, 'INV-ORD-', 'ORD-') = o.order_number::text)
+        LEFT JOIN invoice i ON (i.order_id::text = o.order_id::text OR i.invoice_number::text = o.order_number::text OR REPLACE(i.invoice_number, 'INV-', '') = o.order_number::text OR REPLACE(i.invoice_number, 'INV-ORD-', 'ORD-') = o.order_number::text) 
         LEFT JOIN (
           SELECT DISTINCT ON (order_id) order_id, credit_percentage, credit_amount, gst_reduced
           FROM delivery_memos
