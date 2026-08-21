@@ -4,6 +4,10 @@ const { getDateRangeFilter } = require('../services/tax.service');
 class ReportModel {
   static async getGstReport(filterType, customStartDate, customEndDate) {
     try {
+      try {
+        await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS include_cash_tax BOOLEAN DEFAULT FALSE;`);
+      } catch (e) {}
+
       const { dateCondition, params } = getDateRangeFilter(filterType, customStartDate, customEndDate, 'COALESCE(i.created_at, o.order_date, o.created_at)');
 
       const summaryQuery = `
@@ -13,7 +17,7 @@ class ReportModel {
           COALESCE(SUM(GREATEST(0.00, COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00) - COALESCE(m.gst_reduced, CASE WHEN CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) >= 100 THEN COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00) ELSE (COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00) * (CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) / 100.0)) END, 0.00))), 0.00) as total_gst_collected,
           COALESCE(SUM(GREATEST(0.00, o.total_amount - COALESCE(m.credit_amount, (o.total_amount * (CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) / 100.0)), 0.00))), 0.00) as total_order_amount
         FROM orders o
-        LEFT JOIN invoice i ON (i.order_id::text = o.order_id::text OR i.order_number::text = o.order_number::text OR REPLACE(i.order_number, 'INV-', '') = o.order_number::text)
+        LEFT JOIN invoice i ON (i.order_id::text = o.order_id::text OR i.invoice_number::text = o.order_number::text OR REPLACE(i.invoice_number, 'INV-', '') = o.order_number::text OR REPLACE(i.invoice_number, 'INV-ORD-', 'ORD-') = o.order_number::text)
         LEFT JOIN (
           SELECT DISTINCT ON (order_id) order_id, credit_percentage, credit_amount, gst_reduced
           FROM delivery_memos
@@ -22,14 +26,6 @@ class ReportModel {
         ) m ON (o.order_id::text = m.order_id::text OR o.order_number::text = m.order_id::text OR REPLACE(o.order_number, '#', '') = m.order_id::text)
         WHERE ${dateCondition} 
           AND o.status != 'Cancelled'
-          AND (
-            LOWER(COALESCE(o.payment_type, '')) NOT IN ('cash', 'cod')
-            OR o.include_cash_tax = true
-          )
-          AND (
-            (o.order_number IS NULL OR NOT (o.order_number LIKE 'CSH-%'))
-            OR o.include_cash_tax = true
-          )
       `;
 
       const ordersQuery = `
@@ -50,7 +46,7 @@ class ReportModel {
           COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name,
           i.invoice_number
         FROM orders o
-        LEFT JOIN invoice i ON (i.order_id::text = o.order_id::text OR i.order_number::text = o.order_number::text OR REPLACE(i.order_number, 'INV-', '') = o.order_number::text)
+        LEFT JOIN invoice i ON (i.order_id::text = o.order_id::text OR i.invoice_number::text = o.order_number::text OR REPLACE(i.invoice_number, 'INV-', '') = o.order_number::text OR REPLACE(i.invoice_number, 'INV-ORD-', 'ORD-') = o.order_number::text)
         LEFT JOIN users u ON o.user_id::text = u.id::text
         LEFT JOIN (
           SELECT DISTINCT ON (order_id) order_id, credit_percentage, credit_amount, gst_reduced
@@ -60,14 +56,6 @@ class ReportModel {
         ) m ON (o.order_id::text = m.order_id::text OR o.order_number::text = m.order_id::text OR REPLACE(o.order_number, '#', '') = m.order_id::text)
         WHERE ${dateCondition} 
           AND o.status != 'Cancelled'
-          AND (
-            LOWER(COALESCE(o.payment_type, '')) NOT IN ('cash', 'cod')
-            OR o.include_cash_tax = true
-          )
-          AND (
-            (o.order_number IS NULL OR NOT (o.order_number LIKE 'CSH-%'))
-            OR o.include_cash_tax = true
-          )
         ORDER BY COALESCE(i.created_at, o.order_date, o.created_at) DESC
       `;
 
@@ -124,6 +112,7 @@ class ReportModel {
       try {
         await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS pst_exempt BOOLEAN DEFAULT FALSE;`);
         await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS pst_number VARCHAR(100);`);
+        await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS include_cash_tax BOOLEAN DEFAULT FALSE;`);
       } catch (e) {}
 
       const { dateCondition, params } = getDateRangeFilter(filterType, customStartDate, customEndDate, 'o.created_at');
@@ -137,7 +126,7 @@ class ReportModel {
           COALESCE(SUM(CASE WHEN o.pst_exempt = true OR COALESCE(u.pst_exempt, false) = true OR (o.pst_number IS NOT NULL AND o.pst_number != '' AND o.pst_number != '0') THEN o.subtotal ELSE 0 END), 0.00) as total_pst_exempt_sales,
           COALESCE(SUM(CASE WHEN o.pst_exempt = true OR COALESCE(u.pst_exempt, false) = true OR (o.pst_number IS NOT NULL AND o.pst_number != '' AND o.pst_number != '0') THEN o.subtotal * 0.07 ELSE 0 END), 0.00) as total_pst_saved
         FROM orders o
-        LEFT JOIN invoice i ON (i.order_id::text = o.order_id::text OR i.order_number::text = o.order_number::text OR REPLACE(i.order_number, 'INV-', '') = o.order_number::text)
+        LEFT JOIN invoice i ON (i.order_id::text = o.order_id::text OR i.invoice_number::text = o.order_number::text OR REPLACE(i.invoice_number, 'INV-', '') = o.order_number::text OR REPLACE(i.invoice_number, 'INV-ORD-', 'ORD-') = o.order_number::text)
         LEFT JOIN users u ON o.user_id::text = u.id::text
         LEFT JOIN (
           SELECT DISTINCT ON (order_id) order_id, credit_percentage, credit_amount, pst_reduced
@@ -147,14 +136,6 @@ class ReportModel {
         ) m ON (o.order_id::text = m.order_id::text OR o.order_number::text = m.order_id::text OR REPLACE(o.order_number, '#', '') = m.order_id::text)
         WHERE ${dateCondition} 
           AND o.status != 'Cancelled'
-          AND (
-            LOWER(COALESCE(o.payment_type, '')) NOT IN ('cash', 'cod')
-            OR o.include_cash_tax = true
-          )
-          AND (
-            (o.order_number IS NULL OR NOT (o.order_number LIKE 'CSH-%'))
-            OR o.include_cash_tax = true
-          )
       `;
 
       const ordersQuery = `
@@ -177,7 +158,7 @@ class ReportModel {
           COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name,
           i.invoice_number
         FROM orders o
-        LEFT JOIN invoice i ON (i.order_id::text = o.order_id::text OR i.order_number::text = o.order_number::text OR REPLACE(i.order_number, 'INV-', '') = o.order_number::text)
+        LEFT JOIN invoice i ON (i.order_id::text = o.order_id::text OR i.invoice_number::text = o.order_number::text OR REPLACE(i.invoice_number, 'INV-', '') = o.order_number::text OR REPLACE(i.invoice_number, 'INV-ORD-', 'ORD-') = o.order_number::text)
         LEFT JOIN users u ON o.user_id::text = u.id::text
         LEFT JOIN (
           SELECT DISTINCT ON (order_id) order_id, credit_percentage, credit_amount, pst_reduced
@@ -187,14 +168,6 @@ class ReportModel {
         ) m ON (o.order_id::text = m.order_id::text OR o.order_number::text = m.order_id::text OR REPLACE(o.order_number, '#', '') = m.order_id::text)
         WHERE ${dateCondition} 
           AND o.status != 'Cancelled'
-          AND (
-            LOWER(COALESCE(o.payment_type, '')) NOT IN ('cash', 'cod')
-            OR o.include_cash_tax = true
-          )
-          AND (
-            (o.order_number IS NULL OR NOT (o.order_number LIKE 'CSH-%'))
-            OR o.include_cash_tax = true
-          )
         ORDER BY COALESCE(i.created_at, o.order_date, o.created_at) DESC
       `;
 
