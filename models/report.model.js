@@ -9,19 +9,26 @@ class ReportModel {
       const summaryQuery = `
         SELECT
           COUNT(o.order_id) as total_orders,
-          COALESCE(SUM(o.subtotal), 0.00) as total_subtotal,
-          GREATEST(0.00, COALESCE(SUM(COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00)), 0.00) - COALESCE((SELECT SUM(COALESCE(gst_reduced, amount_lost * 0.05)) FROM delivery_memos WHERE status = 'Credit' OR status = 'Approved' OR status = 'Resolved'), 0.00)) as total_gst_collected,
-          COALESCE(SUM(o.total_amount), 0.00) as total_order_amount
+          COALESCE(SUM(GREATEST(0.00, o.subtotal - COALESCE(m.credit_amount, (o.subtotal * (CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) / 100.0)), 0.00))), 0.00) as total_subtotal,
+          COALESCE(SUM(GREATEST(0.00, COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00) - COALESCE(m.gst_reduced, CASE WHEN CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) >= 100 THEN COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00) ELSE (COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00) * (CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) / 100.0)) END, 0.00))), 0.00) as total_gst_collected,
+          COALESCE(SUM(GREATEST(0.00, o.total_amount - COALESCE(m.credit_amount, (o.total_amount * (CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) / 100.0)), 0.00))), 0.00) as total_order_amount
         FROM orders o
         LEFT JOIN invoice i ON i.order_id::text = o.order_id::text
+        LEFT JOIN (
+          SELECT DISTINCT ON (order_id) order_id, credit_percentage, credit_amount, gst_reduced
+          FROM delivery_memos
+          WHERE order_id IS NOT NULL AND status IN ('Credit', 'Approved', 'Resolved', 'Pending')
+          ORDER BY order_id, created_at DESC
+        ) m ON (o.order_id::text = m.order_id::text OR o.order_number::text = m.order_id::text OR REPLACE(o.order_number, '#', '') = m.order_id::text)
         WHERE ${dateCondition} 
           AND o.status != 'Cancelled'
-          AND LOWER(COALESCE(o.payment_type, '')) NOT IN ('cash', 'cod')
-          AND (o.order_number IS NULL OR NOT (o.order_number LIKE 'CSH-%'))
-          AND NOT EXISTS (
-            SELECT 1 FROM invoice i2 
-            WHERE i2.order_id::text = o.order_id::text 
-              AND i2.invoice_number LIKE 'CSH-%'
+          AND (
+            LOWER(COALESCE(o.payment_type, '')) NOT IN ('cash', 'cod')
+            OR o.include_cash_tax = true
+          )
+          AND (
+            (o.order_number IS NULL OR NOT (o.order_number LIKE 'CSH-%'))
+            OR o.include_cash_tax = true
           )
       `;
 
@@ -33,24 +40,32 @@ class ReportModel {
           o.created_at,
           o.order_date,
           o.subtotal,
-          COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00) as gst_amount,
+          GREATEST(0.00, COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00) - COALESCE(m.gst_reduced, CASE WHEN CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) >= 100 THEN COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00) ELSE (COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00) * (CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) / 100.0)) END, 0.00)) as gst_amount,
           COALESCE(NULLIF(o.pst_amount, 0), CASE WHEN o.pst_exempt = true THEN 0 ELSE o.subtotal * 0.07 END, 0.00) as pst_amount,
           o.total_amount,
           o.status,
           o.payment_type,
+          COALESCE(CAST(m.credit_percentage AS NUMERIC), 0) as memo_pct,
           COALESCE(NULLIF(u.company_name, ''), 'Client Company') as company_name,
           COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name,
           (SELECT invoice_number FROM invoice WHERE invoice.order_id::text = o.order_id::text LIMIT 1) as invoice_number
         FROM orders o
         LEFT JOIN users u ON o.user_id::text = u.id::text
+        LEFT JOIN (
+          SELECT DISTINCT ON (order_id) order_id, credit_percentage, credit_amount, gst_reduced
+          FROM delivery_memos
+          WHERE order_id IS NOT NULL AND status IN ('Credit', 'Approved', 'Resolved', 'Pending')
+          ORDER BY order_id, created_at DESC
+        ) m ON (o.order_id::text = m.order_id::text OR o.order_number::text = m.order_id::text OR REPLACE(o.order_number, '#', '') = m.order_id::text)
         WHERE ${dateCondition} 
           AND o.status != 'Cancelled'
-          AND LOWER(COALESCE(o.payment_type, '')) NOT IN ('cash', 'cod')
-          AND (o.order_number IS NULL OR NOT (o.order_number LIKE 'CSH-%'))
-          AND NOT EXISTS (
-            SELECT 1 FROM invoice i2 
-            WHERE i2.order_id::text = o.order_id::text 
-              AND i2.invoice_number LIKE 'CSH-%'
+          AND (
+            LOWER(COALESCE(o.payment_type, '')) NOT IN ('cash', 'cod')
+            OR o.include_cash_tax = true
+          )
+          AND (
+            (o.order_number IS NULL OR NOT (o.order_number LIKE 'CSH-%'))
+            OR o.include_cash_tax = true
           )
         ORDER BY COALESCE(o.order_date, o.created_at) DESC
       `;
@@ -114,21 +129,28 @@ class ReportModel {
       const summaryQuery = `
         SELECT
           COUNT(o.order_id) as total_orders,
-          COALESCE(SUM(o.subtotal), 0.00) as total_subtotal,
-          GREATEST(0.00, COALESCE(SUM(CASE WHEN o.pst_exempt = true OR COALESCE(u.pst_exempt, false) = true THEN 0 ELSE COALESCE(NULLIF(o.pst_amount, 0), o.subtotal * 0.07, 0.00) END), 0.00) - COALESCE((SELECT SUM(COALESCE(pst_reduced, amount_lost * 0.07)) FROM delivery_memos WHERE status = 'Credit' OR status = 'Approved' OR status = 'Resolved'), 0.00)) as total_pst_collected,
-          COALESCE(SUM(o.total_amount), 0.00) as total_order_amount,
+          COALESCE(SUM(GREATEST(0.00, o.subtotal - COALESCE(m.credit_amount, (o.subtotal * (CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) / 100.0)), 0.00))), 0.00) as total_subtotal,
+          COALESCE(SUM(GREATEST(0.00, (CASE WHEN o.pst_exempt = true OR COALESCE(u.pst_exempt, false) = true THEN 0 ELSE COALESCE(NULLIF(o.pst_amount, 0), o.subtotal * 0.07, 0.00) END) - COALESCE(m.pst_reduced, CASE WHEN CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) >= 100 THEN COALESCE(NULLIF(o.pst_amount, 0), o.subtotal * 0.07, 0.00) ELSE (COALESCE(NULLIF(o.pst_amount, 0), o.subtotal * 0.07, 0.00) * (CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) / 100.0)) END, 0.00))), 0.00) as total_pst_collected,
+          COALESCE(SUM(GREATEST(0.00, o.total_amount - COALESCE(m.credit_amount, (o.total_amount * (CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) / 100.0)), 0.00))), 0.00) as total_order_amount,
           COALESCE(SUM(CASE WHEN o.pst_exempt = true OR COALESCE(u.pst_exempt, false) = true OR (o.pst_number IS NOT NULL AND o.pst_number != '' AND o.pst_number != '0') THEN o.subtotal ELSE 0 END), 0.00) as total_pst_exempt_sales,
           COALESCE(SUM(CASE WHEN o.pst_exempt = true OR COALESCE(u.pst_exempt, false) = true OR (o.pst_number IS NOT NULL AND o.pst_number != '' AND o.pst_number != '0') THEN o.subtotal * 0.07 ELSE 0 END), 0.00) as total_pst_saved
         FROM orders o
         LEFT JOIN users u ON o.user_id::text = u.id::text
+        LEFT JOIN (
+          SELECT DISTINCT ON (order_id) order_id, credit_percentage, credit_amount, pst_reduced
+          FROM delivery_memos
+          WHERE order_id IS NOT NULL AND status IN ('Credit', 'Approved', 'Resolved', 'Pending')
+          ORDER BY order_id, created_at DESC
+        ) m ON (o.order_id::text = m.order_id::text OR o.order_number::text = m.order_id::text OR REPLACE(o.order_number, '#', '') = m.order_id::text)
         WHERE ${dateCondition} 
           AND o.status != 'Cancelled'
-          AND LOWER(COALESCE(o.payment_type, '')) NOT IN ('cash', 'cod')
-          AND (o.order_number IS NULL OR NOT (o.order_number LIKE 'CSH-%'))
-          AND NOT EXISTS (
-            SELECT 1 FROM invoice i2 
-            WHERE i2.order_id::text = o.order_id::text 
-              AND i2.invoice_number LIKE 'CSH-%'
+          AND (
+            LOWER(COALESCE(o.payment_type, '')) NOT IN ('cash', 'cod')
+            OR o.include_cash_tax = true
+          )
+          AND (
+            (o.order_number IS NULL OR NOT (o.order_number LIKE 'CSH-%'))
+            OR o.include_cash_tax = true
           )
       `;
 
@@ -141,25 +163,33 @@ class ReportModel {
           o.order_date,
           o.subtotal,
           COALESCE(NULLIF(o.gst_amount, 0), o.subtotal * 0.05, 0.00) as gst_amount,
-          COALESCE(NULLIF(o.pst_amount, 0), CASE WHEN o.pst_exempt = true OR COALESCE(u.pst_exempt, false) = true OR (o.pst_number IS NOT NULL AND o.pst_number != '' AND o.pst_number != '0' AND COALESCE(o.pst_amount, 0) = 0) THEN 0 ELSE o.subtotal * 0.07 END, 0.00) as pst_amount,
+          GREATEST(0.00, (CASE WHEN o.pst_exempt = true OR COALESCE(u.pst_exempt, false) = true OR (o.pst_number IS NOT NULL AND o.pst_number != '' AND o.pst_number != '0' AND COALESCE(o.pst_amount, 0) = 0) THEN 0 ELSE COALESCE(NULLIF(o.pst_amount, 0), o.subtotal * 0.07, 0.00) END) - COALESCE(m.pst_reduced, CASE WHEN CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) >= 100 THEN COALESCE(NULLIF(o.pst_amount, 0), o.subtotal * 0.07, 0.00) ELSE (COALESCE(NULLIF(o.pst_amount, 0), o.subtotal * 0.07, 0.00) * (CAST(COALESCE(m.credit_percentage, 0) AS NUMERIC) / 100.0)) END, 0.00)) as pst_amount,
           COALESCE(o.pst_exempt, u.pst_exempt, false) as pst_exempt,
           COALESCE(NULLIF(o.pst_number, ''), u.pst_number, '') as pst_number,
           o.total_amount,
           o.status,
           o.payment_type,
+          COALESCE(CAST(m.credit_percentage AS NUMERIC), 0) as memo_pct,
           COALESCE(NULLIF(u.company_name, ''), 'Client Company') as company_name,
           COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name,
           (SELECT invoice_number FROM invoice WHERE invoice.order_id::text = o.order_id::text LIMIT 1) as invoice_number
         FROM orders o
         LEFT JOIN users u ON o.user_id::text = u.id::text
+        LEFT JOIN (
+          SELECT DISTINCT ON (order_id) order_id, credit_percentage, credit_amount, pst_reduced
+          FROM delivery_memos
+          WHERE order_id IS NOT NULL AND status IN ('Credit', 'Approved', 'Resolved', 'Pending')
+          ORDER BY order_id, created_at DESC
+        ) m ON (o.order_id::text = m.order_id::text OR o.order_number::text = m.order_id::text OR REPLACE(o.order_number, '#', '') = m.order_id::text)
         WHERE ${dateCondition} 
           AND o.status != 'Cancelled'
-          AND LOWER(COALESCE(o.payment_type, '')) NOT IN ('cash', 'cod')
-          AND (o.order_number IS NULL OR NOT (o.order_number LIKE 'CSH-%'))
-          AND NOT EXISTS (
-            SELECT 1 FROM invoice i2 
-            WHERE i2.order_id::text = o.order_id::text 
-              AND i2.invoice_number LIKE 'CSH-%'
+          AND (
+            LOWER(COALESCE(o.payment_type, '')) NOT IN ('cash', 'cod')
+            OR o.include_cash_tax = true
+          )
+          AND (
+            (o.order_number IS NULL OR NOT (o.order_number LIKE 'CSH-%'))
+            OR o.include_cash_tax = true
           )
         ORDER BY COALESCE(o.order_date, o.created_at) DESC
       `;
