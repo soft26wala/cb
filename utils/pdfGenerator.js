@@ -28,7 +28,7 @@ function generateServerInvoicePdf(invoice = {}) {
   };
 
   const invoiceNum = invoice.invoice_number || 'INV-10025';
-  const customerName = invoice.customer_name || invoice.client_name || 'Valued Customer';
+  const customerName = invoice.company_name || invoice.customer_company_name || invoice.customer_name || invoice.client_name || 'Valued Customer';
   const customerAddress = invoice.address || 'Surrey, BC, Canada';
   const rawDate = invoice.invoice_date || invoice.created_at;
   const dateStr = rawDate ? new Date(rawDate).toLocaleDateString() : new Date().toLocaleDateString();
