@@ -12,6 +12,7 @@ const memoryStore = {
   products: [],
   product_images: [],
   user_prices: [],
+  user_color_prices: [],
   orders: [],
   order_items: [],
   invoice: [],

@@ -7,6 +7,10 @@ class ColorModel {
         CREATE TABLE IF NOT EXISTS colors (
           color_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
           color_name VARCHAR(150) UNIQUE NOT NULL,
+          price_add_on NUMERIC(12, 2) DEFAULT 0.00,
+          hex_code VARCHAR(50),
+          description TEXT,
+          status VARCHAR(50) DEFAULT 'active',
           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
       `);
@@ -47,7 +51,7 @@ class ColorModel {
 
   static async findAll() {
     await this.ensureColorTableExists();
-    const result = await db.query(`SELECT * FROM colors ORDER BY created_at ASC, color_name ASC;`);
+    const result = await db.query(`SELECT color_id, color_name, COALESCE(price_add_on, 0.00) as price_add_on, hex_code, description, status, created_at FROM colors ORDER BY created_at ASC, color_name ASC;`);
     return result.rows;
   }
 

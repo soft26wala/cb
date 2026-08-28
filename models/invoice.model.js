@@ -60,7 +60,9 @@ class InvoiceModel {
 
   static async findByOrderId(orderId) {
     const query = `
-      SELECT i.*, COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name, COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, u.mobile_number as customer_mobile,
+      SELECT i.*, COALESCE(NULLIF(o.company_name, ''), u.company_name, NULLIF(o.custom_client_name, ''), u.name, 'Valued Company') as company_name,
+             COALESCE(NULLIF(o.company_name, ''), u.company_name, NULLIF(o.custom_client_name, ''), u.name, 'Valued Company') as customer_name, 
+             COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, u.mobile_number as customer_mobile,
              o.address, o.pincode, o.total_amount, o.subtotal, o.gst_amount, o.pst_amount, o.paid_amount as order_paid_amount, o.credit_amount, o.pst_number as customer_pst_number, o.payment_type,
              COALESCE(o.ship_to_name, i.ship_to_name) as ship_to_name, COALESCE(o.ship_to_address, i.ship_to_address) as ship_to_address, COALESCE(o.delivery_notes, i.delivery_notes) as delivery_notes, COALESCE(o.delivery_charge, i.delivery_charge, 0) as delivery_charge,
              COALESCE(o.discount_amount, i.discount_amount, 0) as discount_amount
@@ -95,7 +97,9 @@ class InvoiceModel {
 
   static async findById(invoiceId) {
     const query = `
-      SELECT i.*, COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name, COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, u.mobile_number as customer_mobile,
+      SELECT i.*, COALESCE(NULLIF(o.company_name, ''), u.company_name, NULLIF(o.custom_client_name, ''), u.name, 'Valued Company') as company_name,
+             COALESCE(NULLIF(o.company_name, ''), u.company_name, NULLIF(o.custom_client_name, ''), u.name, 'Valued Company') as customer_name, 
+             COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, u.mobile_number as customer_mobile,
              o.address, o.pincode, o.total_amount, o.subtotal, o.gst_amount, o.pst_amount, o.paid_amount as order_paid_amount, o.credit_amount, o.pst_number as customer_pst_number, o.payment_type,
              COALESCE(o.delivery_charge, i.delivery_charge, 0) as delivery_charge,
              COALESCE(o.discount_amount, i.discount_amount, 0) as discount_amount
@@ -176,7 +180,9 @@ class InvoiceModel {
     await this.fixLegacyInvoiceNumbers();
 
     let query = `
-      SELECT i.*, COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name, COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, u.mobile_number as customer_mobile,
+      SELECT i.*, COALESCE(NULLIF(o.company_name, ''), u.company_name, NULLIF(o.custom_client_name, ''), u.name, 'Valued Company') as company_name,
+             COALESCE(NULLIF(o.company_name, ''), u.company_name, NULLIF(o.custom_client_name, ''), u.name, 'Valued Company') as customer_name, 
+             COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, u.mobile_number as customer_mobile,
              COALESCE(o.total_amount, i.paid_amount + i.remaining_amount) as total_amount,
              o.subtotal, o.gst_amount, o.pst_amount, o.address, o.pincode, o.pst_number as customer_pst_number, o.payment_type,
              COALESCE(o.delivery_charge, i.delivery_charge, 0) as delivery_charge,

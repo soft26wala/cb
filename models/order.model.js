@@ -940,8 +940,8 @@ class OrderModel {
     const queryRunner = client || db;
     const orderQuery = `
       SELECT o.*, 
-             COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name, 
-             u.company_name as company_name,
+             COALESCE(NULLIF(o.company_name, ''), u.company_name, NULLIF(o.custom_client_name, ''), u.name, 'Valued Company') as company_name, 
+             COALESCE(NULLIF(o.company_name, ''), u.company_name, NULLIF(o.custom_client_name, ''), u.name, 'Valued Company') as customer_name, 
              COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, 
              u.mobile_number as customer_mobile,
              u.username as customer_code
@@ -993,8 +993,8 @@ class OrderModel {
   static async findAll({ userId, status, search, categoryId, productId, unit, limit = 100, offset = 0 }) {
     let query = `
       SELECT o.*, 
-             COALESCE(NULLIF(o.custom_client_name, ''), u.name, 'Valued Client') as customer_name, 
-             u.company_name as company_name,
+             COALESCE(NULLIF(o.company_name, ''), u.company_name, NULLIF(o.custom_client_name, ''), u.name, 'Valued Company') as company_name, 
+             COALESCE(NULLIF(o.company_name, ''), u.company_name, NULLIF(o.custom_client_name, ''), u.name, 'Valued Company') as customer_name, 
              COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email, 
              u.mobile_number as customer_mobile
       FROM orders o
