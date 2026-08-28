@@ -24,15 +24,19 @@ class UserColorPriceController {
   static async updateUserColorPrice(req, res, next) {
     try {
       const { priceId } = req.params;
-      const { customPrice, userId, colorId } = req.body;
+      const { customPrice, custom_price, userId, user_id, colorId, color_id, colorName, color_name } = req.body;
+
+      const targetPrice = customPrice !== undefined ? customPrice : custom_price;
+      const targetUserId = userId || user_id;
+      const targetColor = colorId || color_id || colorName || color_name;
 
       let result;
       if (priceId && priceId !== 'undefined' && priceId !== 'null') {
-        result = await UserColorPriceModel.updateCustomPrice(priceId, customPrice);
-      } else if (userId && colorId) {
-        result = await UserColorPriceModel.upsertCustomPrice(userId, colorId, customPrice);
+        result = await UserColorPriceModel.updateCustomPrice(priceId, targetPrice);
+      } else if (targetUserId && targetColor) {
+        result = await UserColorPriceModel.upsertCustomPrice(targetUserId, targetColor, targetPrice);
       } else {
-        return errorResponse(res, 'Missing priceId or (userId and colorId)', null, 400);
+        return errorResponse(res, 'Missing priceId or (userId and colorId/colorName)', null, 400);
       }
 
       return successResponse(res, 'User color price updated successfully', result);
