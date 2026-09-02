@@ -55,6 +55,9 @@ router.get('/reports/pst-clients', isAdmin, ReportController.getPstClientsReport
 router.get('/client-balances', isAdmin, ReportController.getClientBalances);
 router.get('/reports/client-balances', isAdmin, ReportController.getClientBalances);
 
+router.get('/accounts', AccountController.getAllAccounts);
+router.get('/reports/accounts', AccountController.getAllAccounts);
+
 router.get('/client-balance/:userId', ReportController.getClientBalanceByUserId);
 router.get('/reports/client-balance/:userId', ReportController.getClientBalanceByUserId);
 
