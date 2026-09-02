@@ -51,6 +51,8 @@ const ensureSizingColumnsExist = async () => {
     await db.query(`ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS area NUMERIC(12, 4) DEFAULT 0;`);
     await db.query(`ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS price NUMERIC(12, 2) DEFAULT 0;`);
     await db.query(`ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS total NUMERIC(12, 2) DEFAULT 0;`);
+    await db.query(`ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS description_option VARCHAR(100) DEFAULT '';`);
+    await db.query(`ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS manual_description TEXT DEFAULT '';`);
 
     await db.query(`
       CREATE TABLE IF NOT EXISTS order_sizing_items (
@@ -59,6 +61,8 @@ const ensureSizingColumnsExist = async () => {
         category_id UUID REFERENCES category(category_id) ON DELETE SET NULL,
         product_id UUID REFERENCES products(p_id) ON DELETE SET NULL,
         description TEXT,
+        description_option VARCHAR(100) DEFAULT '',
+        manual_description TEXT DEFAULT '',
         quantity INT NOT NULL DEFAULT 1,
         door_height NUMERIC(12, 3) NOT NULL DEFAULT 0.000,
         door_width NUMERIC(12, 3) NOT NULL DEFAULT 0.000,
@@ -263,10 +267,16 @@ class OrderModel {
       const singleSqft = currentUnit === 'MM' ? (dh * dw) / 92903.04 : (dh * dw) / 144;
       const totalRowArea = singleSqft * qty;
 
+      const descOpt = row.description_option || row.descriptionOption || '';
+      const manualDesc = row.manual_description !== undefined ? row.manual_description : (row.manualDescription || row.notes || '');
+      const fullDesc = row.description || [descOpt, manualDesc].filter(Boolean).join(' ');
+
       processedSizingItems.push({
         category_id: row.category_id || null,
         product_id: row.product_id || null,
-        description: row.description || '',
+        description: fullDesc,
+        description_option: descOpt,
+        manual_description: manualDesc,
         quantity: qty,
         door_height: dh,
         door_width: dw,
@@ -422,17 +432,19 @@ class OrderModel {
     for (const item of processedSizingItems) {
       await queryRunner.query(
         `INSERT INTO order_sizing_items (
-          order_id, category_id, product_id, description, quantity, door_height, door_width,
+          order_id, category_id, product_id, description, description_option, manual_description, quantity, door_height, door_width,
           door_height_text, door_width_text, area, price, total,
           panel_height, panel_width, stile_length, stile_quantity, rail_length, rail_quantity,
           measurement_unit, sort_order, notes
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
         [
           newOrder.order_id,
           item.category_id,
           item.product_id,
           item.description,
+          item.description_option,
+          item.manual_description,
           item.quantity,
           item.door_height,
           item.door_width,
@@ -643,10 +655,16 @@ class OrderModel {
       const singleSqft = currentUnit === 'MM' ? (dh * dw) / 92903.04 : (dh * dw) / 144;
       const totalRowArea = singleSqft * qty;
 
+      const descOpt = row.description_option || row.descriptionOption || '';
+      const manualDesc = row.manual_description !== undefined ? row.manual_description : (row.manualDescription || row.notes || '');
+      const fullDesc = row.description || [descOpt, manualDesc].filter(Boolean).join(' ');
+
       processedSizingItems.push({
         category_id: row.category_id || null,
         product_id: row.product_id || null,
-        description: row.description || '',
+        description: fullDesc,
+        description_option: descOpt,
+        manual_description: manualDesc,
         quantity: qty,
         door_height: dh,
         door_width: dw,
@@ -770,17 +788,19 @@ class OrderModel {
     for (const item of processedSizingItems) {
       await queryRunner.query(
         `INSERT INTO order_sizing_items (
-          order_id, category_id, product_id, description, quantity, door_height, door_width,
+          order_id, category_id, product_id, description, description_option, manual_description, quantity, door_height, door_width,
           door_height_text, door_width_text, area, price, total,
           panel_height, panel_width, stile_length, stile_quantity, rail_length, rail_quantity,
           measurement_unit, sort_order, notes
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
         [
           orderId,
           item.category_id,
           item.product_id,
           item.description,
+          item.description_option,
+          item.manual_description,
           item.quantity,
           item.door_height,
           item.door_width,

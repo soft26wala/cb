@@ -44,6 +44,47 @@ class AccountController {
       next(error);
     }
   }
+
+  static async getClientBalances(req, res, next) {
+    try {
+      const { search } = req.query;
+      const balances = await AccountModel.getClientBalances({ search });
+      return successResponse(res, 'Client ledger balances fetched successfully', balances);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getClientBalanceByUserId(req, res, next) {
+    try {
+      const { userId } = req.params;
+      const balance = await AccountModel.getClientBalanceByUserId(userId);
+      if (!balance) {
+        return errorResponse(res, 'Client balance not found', null, 404);
+      }
+      return successResponse(res, 'Client live balance fetched successfully', balance);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async recordAdvancePayment(req, res, next) {
+    try {
+      const { userId, amount, paymentMethod, description } = req.body;
+      if (!userId || !amount) {
+        return errorResponse(res, 'Client ID and amount are required', null, 400);
+      }
+      const payment = await AccountModel.recordAdvancePayment({
+        userId,
+        amount,
+        paymentMethod: paymentMethod || 'Cash',
+        description: description || 'Advance Payment Received',
+      });
+      return successResponse(res, 'Advance payment recorded successfully', payment, 201);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 module.exports = AccountController;

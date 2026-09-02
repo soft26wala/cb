@@ -6,6 +6,50 @@ const isUUID = (str) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
 class ProductModel {
+  static async createBulkProducts({ category_id, category_name, products = [] }) {
+    await this.initTable();
+    const createdList = [];
+
+    const usersResult = await db.query('SELECT id FROM users');
+    const userIds = usersResult.rows.map(u => u.id);
+
+    for (const item of products) {
+      const prodName = (item.product_name || item.name || '').trim();
+      if (!prodName) continue;
+
+      const rateVal = parseFloat(item.sell_price ?? item.price ?? item.custom_price ?? item.buy_price ?? 0);
+      const catId = item.category_id || category_id || null;
+      const desc = item.product_description || item.description || '';
+      const stock = parseInt(item.stock || 100, 10);
+      const status = item.status || 'active';
+
+      const insertQuery = `
+        INSERT INTO products (category_id, product_name, product_description, buy_price, gst_percent, pst_percent, stock, status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING *
+      `;
+      const values = [catId, prodName, desc, rateVal, 5, 7, stock, status];
+      const res = await db.query(insertQuery, values);
+      const newProd = res.rows[0];
+
+      if (userIds.length > 0 && newProd?.p_id) {
+        for (const uId of userIds) {
+          await db.query(
+            `INSERT INTO user_prices (user_id, product_id, custom_price)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (user_id, product_id) DO UPDATE SET custom_price = EXCLUDED.custom_price`,
+            [uId, newProd.p_id, rateVal]
+          );
+        }
+      }
+
+      const fullProd = await this.findById(newProd.p_id);
+      if (fullProd) createdList.push(fullProd);
+    }
+
+    return createdList;
+  }
+
   static async initTable() {
     try {
       await db.query(`ALTER TABLE products DROP COLUMN IF EXISTS sell_price CASCADE;`);

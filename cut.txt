@@ -5,3 +5,40 @@ invice ( solid to(delever company), mannual,  )
 cutasion ( work order(remove) )
 
 stattemant
+
+
+cutlist -(  )
+
+
+
+ttttt
+
+orderFrom client,
+
+statmant inters,
+
+invoice , cutlist, me all data 
+
+xml (qyt, h, w, name, des),
+
+meos me invoice number,
+
+
+statmant me Delivery Date remove (invoice no, date, ordernu, type, ) done
+
+invoice (company name, sipt to, color, ) done
+
+prodect(modal, sellprice, editprice), 
+
+price liat (p_name, cat, custom price, ) panding
+
+orderform done
+
+
+29 
+
+invoice (rail size, )
+
+orderFrom( Stain Color remove, c(doorfront), )
+
+payment biliging ml, scan

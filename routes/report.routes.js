@@ -52,6 +52,15 @@ router.get('/reports/pst-exempt', isAdmin, ReportController.getPstExemptReport);
 router.get('/pst-clients', isAdmin, ReportController.getPstClientsReport);
 router.get('/reports/pst-clients', isAdmin, ReportController.getPstClientsReport);
 
+router.get('/client-balances', isAdmin, ReportController.getClientBalances);
+router.get('/reports/client-balances', isAdmin, ReportController.getClientBalances);
+
+router.get('/client-balance/:userId', ReportController.getClientBalanceByUserId);
+router.get('/reports/client-balance/:userId', ReportController.getClientBalanceByUserId);
+
+router.post('/advance-payment', isAdmin, ReportController.recordAdvancePayment);
+router.post('/reports/advance-payment', isAdmin, ReportController.recordAdvancePayment);
+
 router.get('/dashboard', isAdmin, DashboardController.getDashboard);
 router.get('/reports/dashboard', isAdmin, DashboardController.getDashboard);
 

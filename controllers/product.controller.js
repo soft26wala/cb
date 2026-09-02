@@ -4,6 +4,26 @@ const { recordHistory } = require('../services/audit.service');
 const { uploadToCloudinaryBuffer } = require('../services/cloudinary.service');
 
 class ProductController {
+  static async createBulkProducts(req, res, next) {
+    try {
+      const { category_id, products, category_name } = req.body;
+      const productsList = Array.isArray(products) ? products : (Array.isArray(req.body) ? req.body : []);
+      if (productsList.length === 0) {
+        return errorResponse(res, 'No products provided for bulk creation', null, 400);
+      }
+
+      const createdProducts = await ProductModel.createBulkProducts({
+        category_id,
+        category_name,
+        products: productsList,
+      });
+
+      return successResponse(res, `${createdProducts.length} products created successfully`, createdProducts, 201);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   static async getProducts(req, res, next) {
     try {
       const { search, category_id, status, user_id, limit, offset } = req.query;

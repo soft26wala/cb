@@ -125,6 +125,153 @@ class AccountModel {
       return [];
     }
   }
+
+  static async getClientBalances({ search = '' } = {}) {
+    try {
+      let query = `
+        SELECT 
+          u.id as user_id,
+          u.name as customer_name,
+          u.company_name,
+          u.email as customer_email,
+          u.mobile_number,
+          u.pst_number,
+          u.pst_exempt,
+          0.00 as opening_balance,
+          COALESCE((
+            SELECT SUM(o.total_amount) 
+            FROM orders o 
+            WHERE o.user_id = u.id AND o.status != 'Cancelled'
+          ), 0.00) as total_debits,
+          COALESCE((
+            SELECT SUM(p.amount) 
+            FROM payments p 
+            WHERE p.customer_id = u.id
+          ), 0.00) + COALESCE((
+            SELECT SUM(o2.paid_amount) 
+            FROM orders o2 
+            WHERE o2.user_id = u.id AND o2.paid_amount > 0 AND NOT EXISTS (SELECT 1 FROM payments p2 WHERE p2.order_id = o2.order_id)
+          ), 0.00) as total_credits
+        FROM users u
+        WHERE u.status IS DISTINCT FROM 'disabled'
+          AND LOWER(u.role) != 'admin'
+      `;
+
+      const params = [];
+      if (search && search.trim() !== '') {
+        params.push(`%${search.trim()}%`);
+        query += ` AND (u.name ILIKE $1 OR u.company_name ILIKE $1 OR u.email ILIKE $1 OR CAST(u.mobile_number AS TEXT) ILIKE $1)`;
+      }
+
+      query += ` ORDER BY u.company_name ASC NULLS LAST, u.name ASC`;
+
+      const result = await db.query(query, params);
+      const rows = result.rows || [];
+
+      return rows.map((row) => {
+        const debits = parseFloat(row.total_debits || 0);
+        const credits = parseFloat(row.total_credits || 0);
+        const netBalance = credits - debits;
+
+        let status = 'SETTLED';
+        if (netBalance > 0.001) status = 'ADVANCE';
+        else if (netBalance < -0.001) status = 'UDHAR';
+
+        return {
+          ...row,
+          total_debits: debits,
+          total_credits: credits,
+          net_balance: netBalance,
+          status,
+        };
+      });
+    } catch (err) {
+      console.error('[AccountModel.getClientBalances] Error:', err);
+      return [];
+    }
+  }
+
+  static async getClientBalanceByUserId(userId) {
+    try {
+      const query = `
+        SELECT 
+          u.id as user_id,
+          u.name as customer_name,
+          u.company_name,
+          COALESCE((
+            SELECT SUM(o.total_amount) 
+            FROM orders o 
+            WHERE o.user_id = u.id AND o.status != 'Cancelled'
+          ), 0.00) as total_debits,
+          COALESCE((
+            SELECT SUM(p.amount) 
+            FROM payments p 
+            WHERE p.customer_id = u.id
+          ), 0.00) + COALESCE((
+            SELECT SUM(o2.paid_amount) 
+            FROM orders o2 
+            WHERE o2.user_id = u.id AND o2.paid_amount > 0 AND NOT EXISTS (SELECT 1 FROM payments p2 WHERE p2.order_id = o2.order_id)
+          ), 0.00) as total_credits
+        FROM users u
+        WHERE u.id = $1
+      `;
+      const result = await db.query(query, [userId]);
+      if (!result.rows || result.rows.length === 0) return null;
+      const row = result.rows[0];
+      const debits = parseFloat(row.total_debits || 0);
+      const credits = parseFloat(row.total_credits || 0);
+      const netBalance = credits - debits;
+
+      let status = 'SETTLED';
+      if (netBalance > 0.001) status = 'ADVANCE';
+      else if (netBalance < -0.001) status = 'UDHAR';
+
+      return {
+        ...row,
+        total_debits: debits,
+        total_credits: credits,
+        net_balance: netBalance,
+        status,
+      };
+    } catch (err) {
+      console.error('[AccountModel.getClientBalanceByUserId] Error:', err);
+      return null;
+    }
+  }
+
+  static async recordAdvancePayment({ userId, amount, paymentMethod, description = '' }) {
+    const client = await db.getClient();
+    try {
+      await client.query('BEGIN');
+      const numAmount = parseFloat(amount);
+      if (isNaN(numAmount) || numAmount <= 0) throw new Error('Invalid payment amount');
+
+      const paymentRes = await client.query(
+        `INSERT INTO payments (customer_id, amount, method, transaction_id, created_at)
+         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+         RETURNING *`,
+        [userId, numAmount, paymentMethod || 'Cash', 'ADV-' + Date.now()]
+      );
+
+      const { addLedgerTransaction } = require('../services/ledger.service');
+      await addLedgerTransaction({
+        userId,
+        type: 'Advance',
+        amount: numAmount,
+        paymentMethod: paymentMethod || 'Cash',
+        description: description || 'Advance Payment Received',
+        client,
+      });
+
+      await client.query('COMMIT');
+      return paymentRes.rows[0];
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
 }
 
 module.exports = AccountModel;

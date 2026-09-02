@@ -27,7 +27,7 @@ const seedDatabase = async () => {
     await db.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS bill_image TEXT;`);
 
 
-    // 1. Seed Users (Initial Admin + Locked Demo Account)
+        // 1. Seed Users (Initial Admin)
     const adminEmail = process.env.INITIAL_ADMIN_EMAIL || 'admin@gbcabinetdoors.ca';
     const adminUsername = process.env.INITIAL_ADMIN_USERNAME || 'admin';
     const adminPassword = process.env.INITIAL_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD || 'tu@serts@4a5@eae@esr.kok.ji,ug42@@dd';
@@ -35,10 +35,12 @@ const seedDatabase = async () => {
     const hashedAdminPassword = await bcrypt.hash(adminPassword, 10);
 
     const adminId = '11111111-1111-1111-1111-111111111111';
-    const demoId = '99999999-9999-9999-9999-999999999999';
 
-    // Seed list: Admin + Locked Demo Account (which cannot be logged into)
-    // Extra sample accounts (employees, CAs, clients) removed so admin can add them manually via UI
+    // Delete legacy demo account if exists
+    try {
+      await db.query("DELETE FROM users WHERE username = 'demo' OR email = 'demo@gbcabinetdoors.ca'");
+    } catch (e) {}
+
     const usersToSeed = [
       {
         id: adminId,
@@ -48,15 +50,6 @@ const seedDatabase = async () => {
         password: hashedAdminPassword,
         role: 'admin',
         status: 'active',
-      },
-      {
-        id: demoId,
-        name: 'Demo Account (Locked - No Access)',
-        email: 'demo@gbcabinetdoors.ca',
-        username: 'demo',
-        password: 'LOCKED_DEMO_ACCOUNT_LOGIN_DISABLED_NO_ACCESS', // Un-hashed invalid password prevents login
-        role: 'user',
-        status: 'disabled', // Disabled status prevents login
       },
     ];
 

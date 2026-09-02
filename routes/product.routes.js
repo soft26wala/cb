@@ -16,6 +16,9 @@ router.get('/:id', ProductController.getProductById);
 
 router.use(verifyToken, isAdmin);
 
+router.post('/bulk', ProductController.createBulkProducts);
+router.post('/products/bulk', ProductController.createBulkProducts);
+
 const productValidation = [
   body('product_name').notEmpty().withMessage('Product name is required'),
   body('sell_price').optional(),
