@@ -43,6 +43,8 @@ router.post(
   OrderController.addPayment
 );
 
+router.delete('/payment/:paymentId', verifyToken, OrderController.deletePayment);
+router.delete('/payment/:paymentId', verifyToken, OrderController.deletePayment);
 router.delete('/:id', verifyToken, OrderController.deleteOrder);
 
 module.exports = router;

@@ -303,7 +303,7 @@ class AccountModel {
       const { addLedgerTransaction } = require('../services/ledger.service');
       await addLedgerTransaction({
         userId,
-        type: 'Reversal',
+        type: 'Adjustment',
         amount: numAmount,
         paymentMethod: methodStr,
         description: description || `Reversal of wrong advance payment (-$${numAmount.toFixed(2)})`,

@@ -333,6 +333,17 @@ class OrderController {
       next(error);
     }
   }
+
+  static async deletePayment(req, res, next) {
+    try {
+      const { paymentId } = req.params;
+      const deleted = await OrderModel.deletePayment(paymentId);
+      return successResponse(res, 'Payment entry removed successfully', deleted);
+    } catch (error) {
+      next(error);
+    }
+  }
+
 }
 
 module.exports = OrderController;

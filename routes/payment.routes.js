@@ -14,4 +14,19 @@ router.post('/send-invoice-email/:orderId', PaymentController.sendInvoiceEmail);
 // Stripe Webhook Endpoint (Must receive raw body)
 router.post('/webhook', PaymentController.handleStripeWebhook);
 
+
+
+
+// Delete wrong payment entry completely and restore credit balance
+router.delete('/:paymentId', verifyToken, async (req, res, next) => {
+  try {
+    const { paymentId } = req.params;
+    const OrderModel = require('../models/order.model');
+    const deleted = await OrderModel.deletePayment(paymentId);
+    return res.status(200).json({ success: true, message: 'Payment entry removed successfully', data: deleted });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;

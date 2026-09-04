@@ -1151,7 +1151,15 @@ class OrderModel {
     const currentPaid = parseFloat(order.paid_amount || 0);
     const newPaidAmount = Math.max(0, currentPaid - amount);
     const totalAmt = parseFloat(order.total_amount || 0);
-    const newCreditAmount = totalAmt - newPaidAmount;
+    const newCreditAmount = Math.max(0, totalAmt - newPaidAmount);
+
+    // Delete matching/latest payment entry from payments table for this order so no negative reversal rows clog the ledger
+    await queryRunner.query(
+      `DELETE FROM payments WHERE payment_id IN (
+         SELECT payment_id FROM payments WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1
+       )`,
+      [orderId]
+    );
 
     await queryRunner.query(
       `UPDATE orders SET paid_amount = $1, credit_amount = $2, updated_at = CURRENT_TIMESTAMP WHERE order_id = $3`,
@@ -1164,25 +1172,60 @@ class OrderModel {
       [newPaidAmount, newCreditAmount, newPaymentStatus, orderId]
     );
 
-    const negAmount = -amount;
-    const methodStr = paymentMethod || `Reversal (-$${amount.toFixed(2)})`;
-    await queryRunner.query(
-      `INSERT INTO payments (order_id, customer_id, amount, method, transaction_id)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [orderId, order.user_id, negAmount, methodStr, 'REV-' + Date.now()]
-    );
-
     await addLedgerTransaction({
       userId: order.user_id,
       orderId: orderId,
-      type: 'Reversal',
+      type: 'Adjustment',
       amount: amount,
-      paymentMethod: methodStr,
+      paymentMethod: `Reversal / Removed Entry`,
       description: `Reversal of wrong entry (-$${amount.toFixed(2)}) for Order #${order.order_number || orderId.slice(0, 8)}`,
       client: queryRunner,
     });
 
     return await this.findById(orderId, queryRunner);
+  }
+
+  static async deletePayment(paymentId, client = null) {
+    const queryRunner = client || db;
+    const pRes = await queryRunner.query(`SELECT * FROM payments WHERE payment_id::text = $1`, [String(paymentId)]);
+    if (!pRes.rows || pRes.rows.length === 0) {
+      throw new Error('Payment record not found');
+    }
+    const payment = pRes.rows[0];
+    const amount = parseFloat(payment.amount || 0);
+
+    await queryRunner.query(`DELETE FROM payments WHERE payment_id::text = $1`, [String(paymentId)]);
+
+    if (payment.order_id) {
+      const order = await this.findById(payment.order_id, queryRunner);
+      if (order) {
+        const newPaid = Math.max(0, parseFloat(order.paid_amount || 0) - amount);
+        const totalAmt = parseFloat(order.total_amount || 0);
+        const newCredit = Math.max(0, totalAmt - newPaid);
+
+        await queryRunner.query(
+          `UPDATE orders SET paid_amount = $1, credit_amount = $2, updated_at = CURRENT_TIMESTAMP WHERE order_id = $3`,
+          [newPaid, newCredit, payment.order_id]
+        );
+
+        const newPaymentStatus = newCredit >= totalAmt ? 'Unpaid' : (newCredit <= 0 ? 'Paid' : 'Partial');
+        await queryRunner.query(
+          `UPDATE invoice SET paid_amount = $1, remaining_amount = $2, payment_status = $3 WHERE order_id = $4`,
+          [newPaid, newCredit, newPaymentStatus, payment.order_id]
+        );
+
+        await addLedgerTransaction({
+          userId: order.user_id,
+          orderId: payment.order_id,
+          type: 'Adjustment',
+          amount: Math.abs(amount),
+          paymentMethod: `Deleted Payment (${payment.method || 'Payment'})`,
+          description: `Deleted payment entry of $${amount.toFixed(2)} for Order #${order.order_number || payment.order_id.slice(0, 8)}`,
+          client: queryRunner,
+        });
+      }
+    }
+    return payment;
   }
 
   static async delete(id) {
