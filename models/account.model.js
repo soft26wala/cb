@@ -240,11 +240,22 @@ class AccountModel {
   }
 
   static async recordAdvancePayment({ userId, amount, paymentMethod, description = '' }) {
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount)) throw new Error('Invalid payment amount');
+
+    if (numAmount < 0) {
+      return await this.revertAdvancePayment({
+        userId,
+        amount: Math.abs(numAmount),
+        paymentMethod: paymentMethod || 'Advance Reversal (-)',
+        description: description || 'Advance Reversal for wrong entry',
+      });
+    }
+
     const client = await db.getClient();
     try {
       await client.query('BEGIN');
-      const numAmount = parseFloat(amount);
-      if (isNaN(numAmount) || numAmount <= 0) throw new Error('Invalid payment amount');
+      if (numAmount <= 0) throw new Error('Invalid payment amount');
 
       const paymentRes = await client.query(
         `INSERT INTO payments (customer_id, amount, method, transaction_id, created_at)
@@ -260,6 +271,42 @@ class AccountModel {
         amount: numAmount,
         paymentMethod: paymentMethod || 'Cash',
         description: description || 'Advance Payment Received',
+        client,
+      });
+
+      await client.query('COMMIT');
+      return paymentRes.rows[0];
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  static async revertAdvancePayment({ userId, amount, paymentMethod = 'Advance Reversal (-)', description = '' }) {
+    const client = await db.getClient();
+    try {
+      await client.query('BEGIN');
+      const numAmount = Math.abs(parseFloat(amount));
+      if (isNaN(numAmount) || numAmount <= 0) throw new Error('Invalid reversal amount');
+
+      const negAmount = -numAmount;
+      const methodStr = paymentMethod || `Advance Reversal (-$${numAmount.toFixed(2)})`;
+      const paymentRes = await client.query(
+        `INSERT INTO payments (customer_id, amount, method, transaction_id, created_at)
+         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+         RETURNING *`,
+        [userId, negAmount, methodStr, 'REV-ADV-' + Date.now()]
+      );
+
+      const { addLedgerTransaction } = require('../services/ledger.service');
+      await addLedgerTransaction({
+        userId,
+        type: 'Reversal',
+        amount: numAmount,
+        paymentMethod: methodStr,
+        description: description || `Reversal of wrong advance payment (-$${numAmount.toFixed(2)})`,
         client,
       });
 

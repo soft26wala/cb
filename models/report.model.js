@@ -322,10 +322,13 @@ class ReportModel {
         SELECT 
           p.payment_id::text as id,
           p.order_id,
+          p.customer_id,
           p.amount as paid_amount,
           p.method as payment_type,
           p.created_at,
           COALESCE(u.name, 'Valued Client') as customer_name,
+          COALESCE(u.company_name, u.name, 'Valued Client') as customer_company_name,
+          u.company_name,
           COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email,
           u.mobile_number
         FROM payments p
@@ -336,10 +339,13 @@ class ReportModel {
         SELECT 
           CONCAT('ord-pay-', o.order_id) as id,
           o.order_id,
+          o.user_id as customer_id,
           o.paid_amount,
           o.payment_type,
           o.created_at,
           COALESCE(u.name, 'Valued Client') as customer_name,
+          COALESCE(u.company_name, u.name, 'Valued Client') as customer_company_name,
+          u.company_name,
           COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email,
           u.mobile_number
         FROM orders o
