@@ -4,56 +4,9 @@ const { addLedgerTransaction } = require('../services/ledger.service');
 const { validatePstNumber } = require('../utils/pstValidator');
 
 // Helper function to ensure PST & Sizing columns exist
+// Helper function to ensure PST & Sizing columns exist
 const ensureSizingColumnsExist = async () => {
   try {
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS custom_client_name VARCHAR(255);`);
-    await db.query(`ALTER TABLE orders ALTER COLUMN user_id DROP NOT NULL;`);
-    await db.query(`ALTER TABLE invoice ALTER COLUMN user_id DROP NOT NULL;`);
-    await db.query(`ALTER TABLE invoice ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Issued';`);
-    await db.query(`ALTER TABLE orders DROP COLUMN IF EXISTS hinge_prep;`);
-    await db.query(`ALTER TABLE orders DROP COLUMN IF EXISTS lock_bore_prep;`);
-    await db.query(`ALTER TABLE orders DROP COLUMN IF EXISTS handing;`);
-    await db.query(`ALTER TABLE orders DROP COLUMN IF EXISTS jamb_size;`);
-    await db.query(`ALTER TABLE orders DROP COLUMN IF EXISTS custom_notes;`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pst_number VARCHAR(50);`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pst_verified BOOLEAN DEFAULT FALSE;`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pst_exempt BOOLEAN DEFAULT FALSE;`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pst_verification_date TIMESTAMP WITH TIME ZONE;`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_charge NUMERIC(12, 2) DEFAULT 0;`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12, 2) DEFAULT 0;`);
-    await db.query(`ALTER TABLE invoice ADD COLUMN IF NOT EXISTS delivery_charge NUMERIC(12, 2) DEFAULT 0;`);
-    await db.query(`ALTER TABLE invoice ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12, 2) DEFAULT 0;`);
-
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_number VARCHAR(100);`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_type VARCHAR(50) DEFAULT 'order';`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_quotation BOOLEAN DEFAULT FALSE;`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS po_number VARCHAR(100);`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_date DATE DEFAULT CURRENT_DATE;`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_date DATE;`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS finishing VARCHAR(150);`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS color VARCHAR(150);`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS panel_profile VARCHAR(150);`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS edge_profile VARCHAR(150);`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS measurement_unit VARCHAR(10) DEFAULT 'INCH';`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS rail_size NUMERIC(12, 3) DEFAULT 2.250;`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS stile_size NUMERIC(12, 3) DEFAULT 2.250;`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS door_thickness NUMERIC(10, 3) DEFAULT 0.750;`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS panel_thickness NUMERIC(10, 3) DEFAULT 0.250;`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS wood_species VARCHAR(150);`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS material VARCHAR(150);`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS door_style VARCHAR(150);`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS grain_direction VARCHAR(100);`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS stain_color VARCHAR(150);`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS glass_type VARCHAR(150);`);
-    await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS glass_thickness NUMERIC(10, 3);`);
-    await db.query(`ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS door_height_text VARCHAR(50);`);
-    await db.query(`ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS door_width_text VARCHAR(50);`);
-    await db.query(`ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS area NUMERIC(12, 4) DEFAULT 0;`);
-    await db.query(`ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS price NUMERIC(12, 2) DEFAULT 0;`);
-    await db.query(`ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS total NUMERIC(12, 2) DEFAULT 0;`);
-    await db.query(`ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS description_option VARCHAR(100) DEFAULT '';`);
-    await db.query(`ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS manual_description TEXT DEFAULT '';`);
-
     await db.query(`
       CREATE TABLE IF NOT EXISTS order_sizing_items (
         sizing_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -63,6 +16,7 @@ const ensureSizingColumnsExist = async () => {
         description TEXT,
         description_option VARCHAR(100) DEFAULT '',
         manual_description TEXT DEFAULT '',
+        color VARCHAR(100) DEFAULT '',
         quantity INT NOT NULL DEFAULT 1,
         door_height NUMERIC(12, 3) NOT NULL DEFAULT 0.000,
         door_width NUMERIC(12, 3) NOT NULL DEFAULT 0.000,
@@ -85,6 +39,64 @@ const ensureSizingColumnsExist = async () => {
       );
     `);
     await db.query(`CREATE INDEX IF NOT EXISTS idx_order_sizing_items_order ON order_sizing_items(order_id);`);
+
+    const alterStatements = [
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS custom_client_name VARCHAR(255);`,
+      `ALTER TABLE orders ALTER COLUMN user_id DROP NOT NULL;`,
+      `ALTER TABLE invoice ALTER COLUMN user_id DROP NOT NULL;`,
+      `ALTER TABLE invoice ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Issued';`,
+      `ALTER TABLE orders DROP COLUMN IF EXISTS hinge_prep;`,
+      `ALTER TABLE orders DROP COLUMN IF EXISTS lock_bore_prep;`,
+      `ALTER TABLE orders DROP COLUMN IF EXISTS handing;`,
+      `ALTER TABLE orders DROP COLUMN IF EXISTS jamb_size;`,
+      `ALTER TABLE orders DROP COLUMN IF EXISTS custom_notes;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS pst_number VARCHAR(50);`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS pst_verified BOOLEAN DEFAULT FALSE;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS pst_exempt BOOLEAN DEFAULT FALSE;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS pst_verification_date TIMESTAMP WITH TIME ZONE;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_charge NUMERIC(12, 2) DEFAULT 0;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12, 2) DEFAULT 0;`,
+      `ALTER TABLE invoice ADD COLUMN IF NOT EXISTS delivery_charge NUMERIC(12, 2) DEFAULT 0;`,
+      `ALTER TABLE invoice ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12, 2) DEFAULT 0;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_number VARCHAR(100);`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_type VARCHAR(50) DEFAULT 'order';`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_quotation BOOLEAN DEFAULT FALSE;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS po_number VARCHAR(100);`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_date DATE DEFAULT CURRENT_DATE;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_date DATE;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS finishing VARCHAR(150);`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS color VARCHAR(150);`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS panel_profile VARCHAR(150);`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS edge_profile VARCHAR(150);`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS measurement_unit VARCHAR(10) DEFAULT 'INCH';`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS rail_size NUMERIC(12, 3) DEFAULT 2.250;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS stile_size NUMERIC(12, 3) DEFAULT 2.250;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS door_thickness NUMERIC(10, 3) DEFAULT 0.750;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS panel_thickness NUMERIC(10, 3) DEFAULT 0.250;`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS wood_species VARCHAR(150);`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS material VARCHAR(150);`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS door_style VARCHAR(150);`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS grain_direction VARCHAR(100);`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS stain_color VARCHAR(150);`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS glass_type VARCHAR(150);`,
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS glass_thickness NUMERIC(10, 3);`,
+      `ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS door_height_text VARCHAR(50);`,
+      `ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS door_width_text VARCHAR(50);`,
+      `ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS area NUMERIC(12, 4) DEFAULT 0;`,
+      `ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS price NUMERIC(12, 2) DEFAULT 0;`,
+      `ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS total NUMERIC(12, 2) DEFAULT 0;`,
+      `ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS description_option VARCHAR(100) DEFAULT '';`,
+      `ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS manual_description TEXT DEFAULT '';`,
+      `ALTER TABLE order_sizing_items ADD COLUMN IF NOT EXISTS color VARCHAR(100) DEFAULT '';`
+    ];
+
+    for (const stmt of alterStatements) {
+      try {
+        await db.query(stmt);
+      } catch (err) {
+        // Individual catch so one failure doesn't abort remaining statements
+      }
+    }
 
     // Automatic Migration: Convert all existing Cash/COD orders to Credit/Udhar balance
     await db.query(`
@@ -277,6 +289,7 @@ class OrderModel {
         description: fullDesc,
         description_option: descOpt,
         manual_description: manualDesc,
+        color: row.color || row.color_name || row.finish || '',
         quantity: qty,
         door_height: dh,
         door_width: dw,
@@ -432,12 +445,12 @@ class OrderModel {
     for (const item of processedSizingItems) {
       await queryRunner.query(
         `INSERT INTO order_sizing_items (
-          order_id, category_id, product_id, description, description_option, manual_description, quantity, door_height, door_width,
+          order_id, category_id, product_id, description, description_option, manual_description, color, quantity, door_height, door_width,
           door_height_text, door_width_text, area, price, total,
           panel_height, panel_width, stile_length, stile_quantity, rail_length, rail_quantity,
           measurement_unit, sort_order, notes
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
         [
           newOrder.order_id,
           item.category_id,
@@ -445,6 +458,7 @@ class OrderModel {
           item.description,
           item.description_option,
           item.manual_description,
+          item.color,
           item.quantity,
           item.door_height,
           item.door_width,
@@ -788,12 +802,12 @@ class OrderModel {
     for (const item of processedSizingItems) {
       await queryRunner.query(
         `INSERT INTO order_sizing_items (
-          order_id, category_id, product_id, description, description_option, manual_description, quantity, door_height, door_width,
+          order_id, category_id, product_id, description, description_option, manual_description, color, quantity, door_height, door_width,
           door_height_text, door_width_text, area, price, total,
           panel_height, panel_width, stile_length, stile_quantity, rail_length, rail_quantity,
           measurement_unit, sort_order, notes
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
         [
           orderId,
           item.category_id,
@@ -801,6 +815,7 @@ class OrderModel {
           item.description,
           item.description_option,
           item.manual_description,
+          item.color,
           item.quantity,
           item.door_height,
           item.door_width,

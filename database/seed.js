@@ -113,21 +113,6 @@ const seedDatabase = async () => {
 
     // 3. Seed Product Categories (GB Cabinet Doors Official Categories)
     const gbCategories = [
-      { id: 'a1111111-1111-1111-1111-111111111111', name: 'Solid Wood - 2 1/4" Flat Panel', desc: 'Solid Wood 2 1/4 inch Flat Panel Cabinet Doors' },
-      { id: 'a2222222-2222-2222-2222-222222222222', name: 'Solid Wood - 3" Flat Panel', desc: 'Solid Wood 3 inch Flat Panel Cabinet Doors' },
-      { id: 'a3333333-3333-3333-3333-333333333333', name: 'Solid Wood - 2 1/4" Raised Panel', desc: 'Solid Wood 2 1/4 inch Raised Panel Cabinet Doors' },
-      { id: 'a4444444-4444-4444-4444-444444444444', name: 'Solid Wood - 3" Raised Panel', desc: 'Solid Wood 3 inch Raised Panel Cabinet Doors' },
-      { id: 'a5555555-5555-5555-5555-555555555555', name: 'Solid Wood - Custom Doors', desc: 'Custom Handcrafted Solid Wood Cabinet Doors' },
-      { id: 'a6666666-6666-6666-6666-666666666666', name: 'MDF - 3" Doors', desc: 'MDF 3 inch One-Piece & Multi-Piece Doors' },
-      { id: 'a7777777-7777-7777-7777-777777777777', name: 'MDF - 2 1/4" Doors', desc: 'MDF 2 1/4 inch Precision Cut Cabinet Doors' },
-      { id: 'a8888888-8888-8888-8888-888888888888', name: 'MDF One Piece Doors', desc: 'MDF One Piece Seamless Routered Doors' },
-      { id: 'a9999999-9999-9999-9999-999999999999', name: 'PVC - 3" Doors', desc: 'PVC Thermofoil 3 inch Cabinet Doors' },
-      { id: 'ba111111-1111-1111-1111-111111111111', name: 'PVC - 2 1/4" Doors', desc: 'PVC Thermofoil 2 1/4 inch Cabinet Doors' },
-      { id: 'ba222222-2222-2222-2222-222222222222', name: 'Panel Profiles', desc: 'Custom Door Panel Profiles & Edging Styles' },
-      { id: 'ba333333-3333-3333-3333-333333333333', name: 'Outside Profiles', desc: 'Outside Edge Profiles & Trim Shapes' },
-      { id: 'ba444444-4444-4444-4444-444444444444', name: 'Square 90° Joint Series', desc: 'Square 90 Degree Joint Cabinet Door Collection' },
-      { id: 'ba555555-5555-5555-5555-555555555555', name: 'Miter 45° Joint Series', desc: 'Miter 45 Degree Joint Cabinet Door Collection' },
-      { id: 'ba666666-6666-6666-6666-666666666666', name: 'Hardware & Accessories', desc: 'Soft-Close Hinges, Handles, Slides & Trim Panels' },
     ];
 
     for (const c of gbCategories) {
