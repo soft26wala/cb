@@ -443,13 +443,13 @@ class StatementController {
       let payDateFilter = '';
       if (start) {
         balanceParams.push(start);
-        ordDateFilter += ` AND COALESCE(order_date, created_at) >= ${balanceParams.length}`;
-        payDateFilter += ` AND COALESCE(payment_date, created_at) >= ${balanceParams.length}`;
+        ordDateFilter += ` AND COALESCE(order_date, created_at) >= $${balanceParams.length}`;
+        payDateFilter += ` AND COALESCE(payment_date, created_at) >= $${balanceParams.length}`;
       }
       if (end) {
         balanceParams.push(end);
-        ordDateFilter += ` AND COALESCE(order_date, created_at) <= ${balanceParams.length}`;
-        payDateFilter += ` AND COALESCE(payment_date, created_at) <= ${balanceParams.length}`;
+        ordDateFilter += ` AND COALESCE(order_date, created_at) <= $${balanceParams.length}`;
+        payDateFilter += ` AND COALESCE(payment_date, created_at) <= $${balanceParams.length}`;
       }
 
       const totalBalanceRes = await db.query(`
