@@ -92,7 +92,7 @@ class UserColorPriceModel {
         c.color_name,
         COALESCE(c.price_add_on, 0.00) AS default_price_add_on,
         COALESCE(c.price_add_on, 0.00) AS default_sell_price,
-        COALESCE(ucp.custom_price, c.price_add_on, 0.00) AS custom_price,
+        COALESCE(NULLIF(ucp.custom_price, 0.00), (SELECT custom_price FROM user_color_prices WHERE color_id = c.color_id AND custom_price > 0 LIMIT 1), c.price_add_on, 0.00) AS custom_price,
         ucp.created_at,
         ucp.updated_at
       FROM public.colors AS c

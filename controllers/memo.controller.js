@@ -1,8 +1,8 @@
 const db = require('../config/db');
 const { successResponse, errorResponse } = require('../utils/response');
 
-// GET /api/memos - List all delivery memos
-const getMemos = async (req, res) => {
+// Auto-Initialize memos table on startup (run once, not on every GET)
+const initMemosTable = async () => {
   try {
     await db.query(`
       CREATE TABLE IF NOT EXISTS delivery_memos (
@@ -24,12 +24,19 @@ const getMemos = async (req, res) => {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
-
     await db.query(`ALTER TABLE delivery_memos ADD COLUMN IF NOT EXISTS credit_percentage NUMERIC(5,2) DEFAULT 100.00;`);
     await db.query(`ALTER TABLE delivery_memos ADD COLUMN IF NOT EXISTS credit_amount NUMERIC(10,2) DEFAULT 0.00;`);
     await db.query(`ALTER TABLE delivery_memos ADD COLUMN IF NOT EXISTS gst_reduced NUMERIC(10,2) DEFAULT 0.00;`);
     await db.query(`ALTER TABLE delivery_memos ADD COLUMN IF NOT EXISTS pst_reduced NUMERIC(10,2) DEFAULT 0.00;`);
+  } catch (e) {
+    console.warn('Memos table init warning:', e.message);
+  }
+};
+initMemosTable(); // Run once on module load
 
+// GET /api/memos - List all delivery memos
+const getMemos = async (req, res) => {
+  try {
     const result = await db.query(
       `SELECT m.*, o.order_id, COALESCE(u.name, 'Valued Client') as customer_name, COALESCE(u.email, 'client@gbcabinetdoors.ca') as customer_email 
        FROM delivery_memos m 

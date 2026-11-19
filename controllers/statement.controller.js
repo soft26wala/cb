@@ -77,9 +77,11 @@ class StatementController {
       let ordersQuery = `
         SELECT o.order_id, o.order_number, o.po_number, o.order_date, o.delivery_date, o.created_at, 
                o.total_amount, o.paid_amount, o.credit_amount, o.status, o.payment_type, o.subtotal, o.gst_amount, o.pst_amount,
-               o.custom_client_name
+               o.custom_client_name,
+               i.invoice_id, i.invoice_number
         FROM orders o
         LEFT JOIN users u ON o.user_id = u.id
+        LEFT JOIN invoice i ON (i.order_id::text = o.order_id::text OR i.invoice_number::text = o.order_number::text)
         WHERE o.status != 'Cancelled'
       `;
 
@@ -187,7 +189,10 @@ class StatementController {
           delivery_date_formatted: delivStr,
           type: 'ORDER',
           status: ord.status || 'Active',
-          reference: ord.order_number ? `#${ord.order_number}` : `Order #${ord.order_id.slice(0, 8)}`,
+          reference: ord.invoice_number || (ord.order_number ? `#${ord.order_number}` : `Order #${ord.order_id.slice(0, 8)}`),
+          invoice_number: ord.invoice_number || null,
+          invoice_id: ord.invoice_id || null,
+          order_number: ord.order_number ? (String(ord.order_number).startsWith('#') ? ord.order_number : `#${ord.order_number}`) : null,
           po_number: ord.po_number || '-',
           description: `Order ${ord.order_number ? '#' + ord.order_number : ''}${ord.po_number ? ' (PO: ' + ord.po_number + ')' : ''} — Status: ${ord.status || 'Active'}`,
           debit: parseFloat(ord.total_amount || 0), // Billed (+)
@@ -431,20 +436,35 @@ class StatementController {
         }
       });
 
-      // Compute net running outstanding credit balance per user from all time
+      // Compute net running outstanding credit balance per user
+      // Uses date range if provided (for selected period balance), otherwise all-time
+      const balanceParams = [];
+      let ordDateFilter = '';
+      let payDateFilter = '';
+      if (start) {
+        balanceParams.push(start);
+        ordDateFilter += ` AND COALESCE(order_date, created_at) >= ${balanceParams.length}`;
+        payDateFilter += ` AND COALESCE(payment_date, created_at) >= ${balanceParams.length}`;
+      }
+      if (end) {
+        balanceParams.push(end);
+        ordDateFilter += ` AND COALESCE(order_date, created_at) <= ${balanceParams.length}`;
+        payDateFilter += ` AND COALESCE(payment_date, created_at) <= ${balanceParams.length}`;
+      }
+
       const totalBalanceRes = await db.query(`
         SELECT u.id as user_id,
           (COALESCE(o.total_ord, 0) - COALESCE(p.total_pay, 0) - COALESCE(o.direct_pay, 0)) as pending_balance
         FROM users u
         LEFT JOIN (
           SELECT user_id, SUM(total_amount) as total_ord, SUM(paid_amount) as direct_pay 
-          FROM orders WHERE status != 'Cancelled' GROUP BY user_id
+          FROM orders WHERE status != 'Cancelled'${ordDateFilter} GROUP BY user_id
         ) o ON u.id = o.user_id
         LEFT JOIN (
           SELECT customer_id, SUM(amount) as total_pay 
-          FROM payments GROUP BY customer_id
+          FROM payments WHERE 1=1${payDateFilter} GROUP BY customer_id
         ) p ON u.id = p.customer_id
-      `);
+      `, balanceParams);
 
       const pendingMap = new Map();
       (totalBalanceRes.rows || []).forEach((r) => {
@@ -478,7 +498,7 @@ class StatementController {
         grandCashPaid += cashPaid;
         grandOnlinePaid += onlinePaid;
         grandCardPaid += cardPaid;
-        if (pendingBal > 0) grandOutstandingBalance += pendingBal;
+        grandOutstandingBalance += pendingBal; // include all balances (positive udhar + negative advance)
 
         return {
           id: c.id,

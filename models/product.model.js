@@ -123,8 +123,8 @@ class ProductModel {
         SELECT p.p_id, p.category_id, p.product_name, p.product_description, p.buy_price,
                p.gst_percent, p.pst_percent, p.stock, p.status, p.created_at, p.updated_at,
                c.category_name,
-               COALESCE(up.custom_price, (SELECT custom_price FROM user_prices WHERE product_id = p.p_id LIMIT 1), 0.00) as custom_price,
-               COALESCE(up.custom_price, (SELECT custom_price FROM user_prices WHERE product_id = p.p_id LIMIT 1), 0.00) as sell_price
+               COALESCE(up.custom_price, (SELECT custom_price FROM user_prices WHERE product_id = p.p_id AND custom_price > 0 LIMIT 1), p.buy_price, 0.00) as custom_price,
+               COALESCE(up.custom_price, (SELECT custom_price FROM user_prices WHERE product_id = p.p_id AND custom_price > 0 LIMIT 1), p.buy_price, 0.00) as sell_price
         FROM products p
         LEFT JOIN category c ON p.category_id = c.category_id
         LEFT JOIN user_prices up ON (p.p_id = up.product_id AND up.user_id = $2)
@@ -136,8 +136,8 @@ class ProductModel {
         SELECT p.p_id, p.category_id, p.product_name, p.product_description, p.buy_price,
                p.gst_percent, p.pst_percent, p.stock, p.status, p.created_at, p.updated_at,
                c.category_name,
-               COALESCE((SELECT custom_price FROM user_prices WHERE product_id = p.p_id LIMIT 1), 0.00) as custom_price,
-               COALESCE((SELECT custom_price FROM user_prices WHERE product_id = p.p_id LIMIT 1), 0.00) as sell_price
+               COALESCE((SELECT custom_price FROM user_prices WHERE product_id = p.p_id AND custom_price > 0 LIMIT 1), p.buy_price, 0.00) as custom_price,
+               COALESCE((SELECT custom_price FROM user_prices WHERE product_id = p.p_id AND custom_price > 0 LIMIT 1), p.buy_price, 0.00) as sell_price
         FROM products p
         LEFT JOIN category c ON p.category_id = c.category_id
         WHERE p.p_id::text = $1 OR p.product_name ILIKE $1
@@ -175,8 +175,10 @@ class ProductModel {
 
     if (validUserUuid) {
       params.push(validUserUuid);
-      userJoin = `LEFT JOIN user_prices up ON (p.p_id = up.product_id AND up.user_id = $${params.length})`;
-      priceField = `, COALESCE(up.custom_price, 0.00) as custom_price, COALESCE(up.custom_price, 0.00) as sell_price`;
+      userJoin = `LEFT JOIN user_prices up ON (p.p_id = up.product_id AND up.user_id = ${params.length})`;
+      priceField = `, COALESCE(up.custom_price, p.buy_price, 0.00) as custom_price, COALESCE(up.custom_price, p.buy_price, 0.00) as sell_price`;
+    } else {
+      priceField = `, COALESCE((SELECT custom_price FROM user_prices WHERE product_id = p.p_id AND custom_price > 0 LIMIT 1), p.buy_price, 0.00) as custom_price, COALESCE((SELECT custom_price FROM user_prices WHERE product_id = p.p_id AND custom_price > 0 LIMIT 1), p.buy_price, 0.00) as sell_price`;
     }
 
     let query = `

@@ -37,7 +37,7 @@ class LoanController {
       const newLoan = await LoanModel.create(req.body);
 
       await recordHistory({
-        userId: req.user.id,
+        userId: req.user?.id || null,
         action: 'INSERT',
         tableName: 'loans',
         recordId: newLoan.loan_id,
@@ -62,7 +62,7 @@ class LoanController {
       const updatedLoan = await LoanModel.update(id, req.body);
 
       await recordHistory({
-        userId: req.user.id,
+        userId: req.user?.id || null,
         action: 'UPDATE',
         tableName: 'loans',
         recordId: id,
@@ -88,7 +88,7 @@ class LoanController {
       await LoanModel.delete(id);
 
       await recordHistory({
-        userId: req.user.id,
+        userId: req.user?.id || null,
         action: 'DELETE',
         tableName: 'loans',
         recordId: id,

@@ -13,5 +13,15 @@ router.post('/:invoiceId/send', verifyToken, InvoiceController.sendInvoice);
 // Invoice management routes
 router.get('/', verifyToken, OrderController.getInvoices);
 router.get('/:id', verifyToken, OrderController.getInvoiceByOrderId);
+router.post('/date', verifyToken, OrderController.updateInvoiceDate);
+router.put('/date', verifyToken, OrderController.updateInvoiceDate);
+router.put('/:id/date', verifyToken, OrderController.updateInvoiceDate);
+
+
+// Revert / Delete invoice routes
+router.delete('/:id', verifyToken, InvoiceController.revertInvoice);
+router.delete('/revert/:id', verifyToken, InvoiceController.revertInvoice);
+router.post('/revert', verifyToken, InvoiceController.revertInvoice);
+router.post('/:id/revert', verifyToken, InvoiceController.revertInvoice);
 
 module.exports = router;

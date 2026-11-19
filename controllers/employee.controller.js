@@ -36,7 +36,7 @@ class EmployeeController {
       const newEmployee = await EmployeeModel.create(req.body);
 
       await recordHistory({
-        userId: req.user.id,
+        userId: req.user?.id || null,
         action: 'INSERT',
         tableName: 'employees',
         recordId: newEmployee.employee_id,
@@ -61,7 +61,7 @@ class EmployeeController {
       const updatedEmployee = await EmployeeModel.update(id, req.body);
 
       await recordHistory({
-        userId: req.user.id,
+        userId: req.user?.id || null,
         action: 'UPDATE',
         tableName: 'employees',
         recordId: id,
@@ -87,7 +87,7 @@ class EmployeeController {
       await EmployeeModel.delete(id);
 
       await recordHistory({
-        userId: req.user.id,
+        userId: req.user?.id || null,
         action: 'DELETE',
         tableName: 'employees',
         recordId: id,

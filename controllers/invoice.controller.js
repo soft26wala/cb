@@ -156,6 +156,41 @@ class InvoiceController {
       next(error);
     }
   }
+
+  static async revertInvoice(req, res, next) {
+    try {
+      const targetId =
+        req.params.id ||
+        req.params.invoiceId ||
+        req.body?.invoice_id ||
+        req.body?.order_id ||
+        req.body?.id ||
+        req.body?.invoice_number;
+
+      if (!targetId) {
+        return errorResponse(res, 'Invoice ID or Order ID is required to revert invoice', null, 400);
+      }
+
+      const result = await InvoiceModel.revertInvoice(targetId);
+
+      await recordHistory({
+        userId: req.user?.id || null,
+        action: 'DELETE',
+        tableName: 'invoice',
+        recordId: result.invoice_id || targetId,
+        newData: result,
+        ipAddress: req.ip,
+      }).catch(() => {});
+
+      return successResponse(
+        res,
+        'Invoice successfully reverted and order stepped back to Pending',
+        result
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 module.exports = InvoiceController;

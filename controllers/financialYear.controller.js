@@ -25,14 +25,14 @@ class FinancialYearController {
 
       const result = await FinancialYearModel.closeAndCarryForward({
         fyId,
-        closedBy: req.user.id,
+        closedBy: req.user?.id || null,
         nextFyName,
         nextStartDate,
         nextEndDate,
       });
 
       await recordHistory({
-        userId: req.user.id,
+        userId: req.user?.id || null,
         action: 'UPDATE',
         tableName: 'financial_years',
         recordId: fyId,

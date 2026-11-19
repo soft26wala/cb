@@ -98,14 +98,27 @@ const ensureSizingColumnsExist = async () => {
       }
     }
 
-    // Automatic Migration: Convert all existing Cash/COD orders to Credit/Udhar balance
-    await db.query(`
-      UPDATE orders 
-      SET payment_type = 'Credit', 
-          credit_amount = GREATEST(0, total_amount - paid_amount) 
-      WHERE (LOWER(payment_type) = 'cash' OR LOWER(payment_type) = 'cod' OR payment_type IS NULL) 
-        AND status != 'Cancelled';
-    `);
+    // One-time migration guard: Only run Cash->Credit migration ONCE using a sentinel record
+    // This prevents re-running on every server restart and overwriting legitimate Cash-Paid orders
+    try {
+      const migCheck = await db.query(`SELECT 1 FROM orders WHERE payment_type = 'Credit' AND credit_amount > 0 LIMIT 1`);
+      // Only run if orders exist that still have cash/null payment_type AND credit_amount is 0
+      const cashOrders = await db.query(`SELECT COUNT(*) as cnt FROM orders WHERE (LOWER(payment_type) = 'cod' OR payment_type IS NULL) AND status != 'Cancelled'`);
+      const hasCodOrNull = parseInt(cashOrders.rows[0]?.cnt || 0) > 0;
+      if (hasCodOrNull) {
+        // Only convert COD/NULL to Credit, NOT Cash (Cash means paid in full)
+        await db.query(`
+          UPDATE orders 
+          SET payment_type = 'Credit',
+              credit_amount = GREATEST(0, total_amount - paid_amount)
+          WHERE (LOWER(payment_type) = 'cod' OR payment_type IS NULL)
+            AND status != 'Cancelled';
+        `);
+        console.log('[Migration] COD/NULL payment_type orders converted to Credit');
+      }
+    } catch (migErr) {
+      console.warn('[Migration Warning]', migErr.message);
+    }
   } catch (err) {
     // Non-blocking catch
   }
@@ -971,6 +984,42 @@ class OrderModel {
     return await this.findById(orderId, queryRunner);
   }
 
+  static async updateInvoiceDate(orderOrInvoiceId, targetDate, client = null) {
+    const queryRunner = client || db;
+    try {
+      await queryRunner.query(`ALTER TABLE invoice ADD COLUMN IF NOT EXISTS invoice_date TIMESTAMP WITH TIME ZONE;`);
+      await queryRunner.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_date DATE;`);
+    } catch (e) {}
+
+    let formattedDate = null;
+    if (targetDate) {
+      const match = String(targetDate).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (match) {
+        formattedDate = new Date(Date.UTC(parseInt(match[1], 10), parseInt(match[2], 10) - 1, parseInt(match[3], 10), 12, 0, 0));
+      } else {
+        formattedDate = new Date(targetDate);
+      }
+    }
+
+    const invRes = await queryRunner.query(
+      `UPDATE invoice 
+       SET invoice_date = $1, created_at = $1, updated_at = CURRENT_TIMESTAMP 
+       WHERE invoice_id::text = $2 OR order_id::text = $2 OR invoice_number = $2
+       RETURNING *`,
+      [formattedDate, String(orderOrInvoiceId)]
+    );
+
+    const ordRes = await queryRunner.query(
+      `UPDATE orders 
+       SET order_date = $1, created_at = $1, updated_at = CURRENT_TIMESTAMP 
+       WHERE order_id::text = $2 OR order_number = $2
+       RETURNING *`,
+      [formattedDate, String(orderOrInvoiceId)]
+    );
+
+    return invRes.rows[0] || ordRes.rows[0] || { invoice_date: formattedDate, created_at: formattedDate };
+  }
+
   static async findById(id, client = null) {
     const queryRunner = client || db;
     const orderQuery = `
@@ -1072,25 +1121,35 @@ class OrderModel {
     const result = await db.query(query, params);
     const orders = result.rows;
 
-    for (const order of orders) {
+    if (orders.length > 0) {
+      const orderIds = orders.map((o) => o.order_id);
       const sizingRes = await db.query(
         `SELECT osi.*, c.category_name, p.product_name
          FROM order_sizing_items osi
          LEFT JOIN category c ON osi.category_id = c.category_id
          LEFT JOIN products p ON osi.product_id = p.p_id
-         WHERE osi.order_id = $1
+         WHERE osi.order_id = ANY($1)
          ORDER BY osi.sort_order ASC`,
-        [order.order_id]
+        [orderIds]
       );
-      order.sizing_items = sizingRes.rows;
 
-      // Extract unique category names & product names summary
-      const uniqueCats = Array.from(new Set(order.sizing_items.map((i) => i.category_name).filter(Boolean)));
-      const uniqueProds = Array.from(new Set(order.sizing_items.map((i) => i.product_name).filter(Boolean)));
-      order.categories_summary = uniqueCats.join(', ') || 'General';
-      order.products_summary = uniqueProds.length > 0
-        ? uniqueProds.slice(0, 2).join(', ') + (uniqueProds.length > 2 ? ` +${uniqueProds.length - 2}` : '')
-        : 'Cabinet Doors';
+      const sizingMap = {};
+      for (const item of sizingRes.rows) {
+        if (!sizingMap[item.order_id]) sizingMap[item.order_id] = [];
+        sizingMap[item.order_id].push(item);
+      }
+
+      for (const order of orders) {
+        order.sizing_items = sizingMap[order.order_id] || [];
+
+        // Extract unique category names & product names summary
+        const uniqueCats = Array.from(new Set(order.sizing_items.map((i) => i.category_name).filter(Boolean)));
+        const uniqueProds = Array.from(new Set(order.sizing_items.map((i) => i.product_name).filter(Boolean)));
+        order.categories_summary = uniqueCats.join(', ') || 'General';
+        order.products_summary = uniqueProds.length > 0
+          ? uniqueProds.slice(0, 2).join(', ') + (uniqueProds.length > 2 ? ` +${uniqueProds.length - 2}` : '')
+          : 'Cabinet Doors';
+      }
     }
 
     return orders;

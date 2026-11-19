@@ -102,7 +102,7 @@ class UserController {
       });
 
       await recordHistory({
-        userId: req.user.id,
+        userId: req.user?.id || null,
         action: 'INSERT',
         tableName: 'users',
         recordId: newUser.id,
@@ -145,7 +145,7 @@ class UserController {
       const updatedUser = await UserModel.update(id, updateData);
 
       await recordHistory({
-        userId: req.user.id,
+        userId: req.user?.id || null,
         action: 'UPDATE',
         tableName: 'users',
         recordId: id,
@@ -171,7 +171,7 @@ class UserController {
       await UserModel.delete(id);
 
       await recordHistory({
-        userId: req.user.id,
+        userId: req.user?.id || null,
         action: 'DELETE',
         tableName: 'users',
         recordId: id,
@@ -201,7 +201,7 @@ class UserController {
       const updatedUser = await UserModel.update(id, { password: hashedPassword });
 
       await recordHistory({
-        userId: req.user.id,
+        userId: req.user?.id || null,
         action: 'UPDATE',
         tableName: 'users',
         recordId: id,

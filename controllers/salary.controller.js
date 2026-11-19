@@ -82,7 +82,7 @@ class SalaryController {
       const newSalary = await SalaryModel.create(req.body);
 
       await recordHistory({
-        userId: req.user.id,
+        userId: req.user?.id || null,
         action: 'INSERT',
         tableName: 'salary',
         recordId: newSalary.salary_id,
@@ -107,7 +107,7 @@ class SalaryController {
       const updatedSalary = await SalaryModel.update(id, req.body);
 
       await recordHistory({
-        userId: req.user.id,
+        userId: req.user?.id || null,
         action: 'UPDATE',
         tableName: 'salary',
         recordId: id,
@@ -133,7 +133,7 @@ class SalaryController {
       await SalaryModel.delete(id);
 
       await recordHistory({
-        userId: req.user.id,
+        userId: req.user?.id || null,
         action: 'DELETE',
         tableName: 'salary',
         recordId: id,

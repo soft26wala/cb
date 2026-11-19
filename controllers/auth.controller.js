@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs');
 const { OAuth2Client } = require('google-auth-library');
 const UserModel = require('../models/user.model');
-const { generateAccessToken, generateRefreshToken, verifyRefreshToken } = require('../utils/token');
+const { generateAccessToken, generateRefreshToken, verifyRefreshToken, verifyAccessToken } = require('../utils/token');
 const { successResponse, errorResponse } = require('../utils/response');
 const { recordHistory } = require('../services/audit.service');
 const { uploadToCloudinaryBuffer } = require('../services/cloudinary.service');
@@ -106,7 +106,7 @@ class AuthController {
 
       if (user.password) {
         const isPasswordValid = await bcrypt.compare(password, user.password);
-        if (!isPasswordValid && password !== user.password) {
+        if (!isPasswordValid) {
           return errorResponse(res, 'Invalid credentials', null, 401);
         }
       }
@@ -206,7 +206,6 @@ class AuthController {
 
       const newAccessToken = generateAccessToken({ id: user.id, role: user.role, username: user.username });
       // New refresh token bhi do taaki session rolling rahe
-      const { generateRefreshToken } = require('../utils/token');
       const newRefreshToken = generateRefreshToken({ id: user.id });
 
       return successResponse(res, 'Token refreshed successfully', {

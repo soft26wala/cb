@@ -5,6 +5,7 @@ class InvoiceModel {
   static async initTable() {
     try {
       await db.query(`ALTER TABLE invoice ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;`);
+      await db.query(`ALTER TABLE invoice ADD COLUMN IF NOT EXISTS invoice_date TIMESTAMP WITH TIME ZONE;`);
     } catch (e) {}
   }
 
@@ -26,12 +27,39 @@ class InvoiceModel {
 
     let invNumber = inv ? inv.invoice_number : null;
     if (!invNumber) {
-      const countRes = await db.query(
-        `SELECT COUNT(*) as count FROM invoice WHERE invoice_number LIKE $1`,
+      const existingRes = await db.query(
+        `SELECT invoice_number FROM invoice WHERE invoice_number LIKE $1`,
         [`${targetPrefix}${year}-%`]
       );
-      const nextSeq = (parseInt(countRes.rows[0]?.count || 0, 10) + 1).toString().padStart(4, '0');
-      invNumber = `${targetPrefix}${year}-${nextSeq}`;
+
+      let maxSeq = 0;
+      const regex = new RegExp(`^${targetPrefix}${year}-(\\d+)$`);
+      for (const row of existingRes.rows) {
+        const match = (row.invoice_number || '').match(regex);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxSeq) {
+            maxSeq = num;
+          }
+        }
+      }
+
+      let candidateSeq = Math.max(maxSeq + 1, 1);
+      let candidateNumber = `${targetPrefix}${year}-${candidateSeq.toString().padStart(4, '0')}`;
+
+      while (true) {
+        const check = await db.query(
+          `SELECT 1 FROM invoice WHERE invoice_number = $1 LIMIT 1`,
+          [candidateNumber]
+        );
+        if (check.rows.length === 0) {
+          break;
+        }
+        candidateSeq++;
+        candidateNumber = `${targetPrefix}${year}-${candidateSeq.toString().padStart(4, '0')}`;
+      }
+
+      invNumber = candidateNumber;
     }
 
     const paidAmount = parseFloat(order.paid_amount || 0);
@@ -41,7 +69,8 @@ class InvoiceModel {
     if (inv) {
       const updateRes = await db.query(
         `UPDATE invoice 
-         SET invoice_number = $1, paid_amount = $2, remaining_amount = $3, payment_status = $4, status = 'Issued', created_at = $5
+         SET invoice_number = $1, paid_amount = $2, remaining_amount = $3, payment_status = $4, status = 'Issued', 
+             created_at = $5, invoice_date = $5, updated_at = CURRENT_TIMESTAMP
          WHERE invoice_id = $6
          RETURNING *`,
         [invNumber, paidAmount, creditAmount, paymentStatus, targetDate, inv.invoice_id]
@@ -49,8 +78,11 @@ class InvoiceModel {
       return updateRes.rows[0];
     } else {
       const insertRes = await db.query(
-        `INSERT INTO invoice (order_id, user_id, invoice_number, paid_amount, remaining_amount, payment_status, status, delivery_charge, discount_amount, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        `INSERT INTO invoice (
+           order_id, user_id, invoice_number, paid_amount, remaining_amount, 
+           payment_status, status, delivery_charge, discount_amount, created_at, invoice_date
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
          RETURNING *`,
         [orderId, order.user_id, invNumber, paidAmount, creditAmount, paymentStatus, 'Issued', parseFloat(order.delivery_charge || 0), parseFloat(order.discount_amount || 0), targetDate]
       );
@@ -274,6 +306,91 @@ class InvoiceModel {
       [email_sent, email_sent_at || new Date(), email_message_id || null, email_error || null, invoiceId]
     );
     return res.rows[0] || null;
+  }
+
+  static async revertInvoice(invoiceIdOrOrderId) {
+    const query = `
+      SELECT * FROM invoice 
+      WHERE invoice_id::text = $1 
+         OR order_id::text = $1 
+         OR invoice_number = $1
+      LIMIT 1
+    `;
+    const result = await db.query(query, [String(invoiceIdOrOrderId)]);
+    let inv = result.rows[0];
+
+    let targetOrderId = null;
+    if (inv) {
+      targetOrderId = inv.order_id;
+      await db.query(`DELETE FROM invoice WHERE invoice_id = $1`, [inv.invoice_id]);
+    } else {
+      const ordRes = await db.query(`SELECT order_id FROM orders WHERE order_id::text = $1`, [String(invoiceIdOrOrderId)]);
+      if (ordRes.rows[0]) {
+        targetOrderId = ordRes.rows[0].order_id;
+        await db.query(`DELETE FROM invoice WHERE order_id = $1`, [targetOrderId]);
+      }
+    }
+
+    if (targetOrderId) {
+      await db.query(
+        `UPDATE orders 
+         SET status = 'Pending', is_quotation = false, updated_at = CURRENT_TIMESTAMP 
+         WHERE order_id = $1`,
+        [targetOrderId]
+      );
+    }
+
+    return {
+      reverted: true,
+      invoice_id: inv?.invoice_id || null,
+      order_id: targetOrderId,
+      invoice_number: inv?.invoice_number || null,
+    };
+  }
+
+  static async updateInvoiceDate(targetId, invoiceDate) {
+    await this.initTable();
+    try {
+      await db.query(`ALTER TABLE invoice ADD COLUMN IF NOT EXISTS invoice_date DATE;`);
+    } catch (e) {}
+
+    const parts = String(invoiceDate).split('-');
+    let targetDate;
+    if (parts.length === 3) {
+      targetDate = new Date(Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 12, 0, 0));
+    } else {
+      targetDate = new Date(invoiceDate);
+    }
+
+    const result = await db.query(
+      `UPDATE invoice 
+       SET created_at = $1, invoice_date = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE invoice_id::text = $2 
+          OR order_id::text = $2 
+          OR invoice_number = $2
+       RETURNING *`,
+      [targetDate, String(targetId)]
+    );
+
+    if (result.rows.length === 0) {
+      const invCheck = await db.query(
+        `SELECT * FROM invoice WHERE order_id::text = $1 LIMIT 1`,
+        [String(targetId)]
+      );
+      if (invCheck.rows.length > 0) {
+        const res2 = await db.query(
+          `UPDATE invoice 
+           SET created_at = $1, invoice_date = $1, updated_at = CURRENT_TIMESTAMP
+           WHERE invoice_id = $2
+           RETURNING *`,
+          [targetDate, invCheck.rows[0].invoice_id]
+        );
+        return res2.rows[0];
+      }
+      throw new Error(`Invoice not found for ID: ${targetId}`);
+    }
+
+    return result.rows[0];
   }
 }
 

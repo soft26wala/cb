@@ -31,6 +31,8 @@ router.put('/:id/delivery-discount', verifyToken, OrderController.updateDelivery
 router.put('/:id/ship-to', verifyToken, OrderController.updateShipTo);
 router.put('/:id/shipping-date', verifyToken, OrderController.updateShippingDate);
 router.put('/:id/delivery-date', verifyToken, OrderController.updateShippingDate);
+router.put('/:id/invoice-date', verifyToken, OrderController.updateInvoiceDate);
+router.put('/:id/order-date', verifyToken, OrderController.updateInvoiceDate);
 
 router.post(
   '/:id/payment',

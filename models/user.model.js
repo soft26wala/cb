@@ -39,11 +39,23 @@ class UserModel {
 
     await queryRunner.query(
       `INSERT INTO user_prices (user_id, product_id, custom_price)
-       SELECT $1, p.p_id, COALESCE((SELECT custom_price FROM user_prices WHERE product_id = p.p_id LIMIT 1), 0.00)
+       SELECT $1, p.p_id, COALESCE((SELECT custom_price FROM user_prices WHERE product_id = p.p_id AND custom_price > 0 LIMIT 1), p.buy_price, 0.00)
        FROM products p
        ON CONFLICT (user_id, product_id) DO NOTHING`,
       [newUser.id]
     );
+
+    try {
+      await queryRunner.query(
+        `INSERT INTO user_color_prices (user_id, color_id, custom_price)
+         SELECT $1, c.color_id, COALESCE((SELECT custom_price FROM user_color_prices WHERE color_id = c.color_id AND custom_price > 0 LIMIT 1), c.price_add_on, 0.00)
+         FROM colors c
+         ON CONFLICT (user_id, color_id) DO NOTHING`,
+        [newUser.id]
+      );
+    } catch (errColor) {
+      console.warn('[UserModel.create] Warn: failed to auto-insert user color prices:', errColor.message);
+    }
 
     return newUser;
   }

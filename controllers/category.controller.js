@@ -37,7 +37,7 @@ class CategoryController {
       const newCategory = await CategoryModel.create({ category_name, description, status });
 
       await recordHistory({
-        userId: req.user.id,
+        userId: req.user?.id || null,
         action: 'INSERT',
         tableName: 'category',
         recordId: newCategory.category_id,
@@ -62,7 +62,7 @@ class CategoryController {
       const updatedCategory = await CategoryModel.update(id, req.body);
 
       await recordHistory({
-        userId: req.user.id,
+        userId: req.user?.id || null,
         action: 'UPDATE',
         tableName: 'category',
         recordId: id,
@@ -88,7 +88,7 @@ class CategoryController {
       await CategoryModel.delete(id);
 
       await recordHistory({
-        userId: req.user.id,
+        userId: req.user?.id || null,
         action: 'DELETE',
         tableName: 'category',
         recordId: id,

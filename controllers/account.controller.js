@@ -20,7 +20,7 @@ class AccountController {
       const { userId } = req.params;
       const { limit, offset } = req.query;
 
-      if (req.user.role !== 'admin' && req.user.role !== 'employee' && req.user.id !== userId) {
+      if (req.user?.role !== 'admin' && req.user?.role !== 'employee' && req.user?.id !== userId) {
         return errorResponse(res, 'Access denied', null, 403);
       }
 

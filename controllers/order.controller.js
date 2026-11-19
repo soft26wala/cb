@@ -142,7 +142,7 @@ class OrderController {
         return errorResponse(res, 'Order not found', null, 404);
       }
 
-      if (req.user.role !== 'admin' && order.user_id !== req.user.id) {
+      if (req.user?.role !== 'admin' && order.user_id !== req.user?.id) {
         return errorResponse(res, 'Access denied', null, 403);
       }
 
@@ -161,7 +161,7 @@ class OrderController {
         return errorResponse(res, 'Invoice not found for this order', null, 404);
       }
 
-      if (req.user.role !== 'admin' && invoice.user_id !== req.user.id) {
+      if (req.user?.role !== 'admin' && invoice.user_id !== req.user?.id) {
         return errorResponse(res, 'Access denied', null, 403);
       }
 
@@ -179,7 +179,7 @@ class OrderController {
       const updatedOrder = await OrderModel.updateStatus(id, status);
 
       await recordHistory({
-        userId: req.user.id,
+        userId: req.user?.id || null,
         action: 'UPDATE',
         tableName: 'orders',
         recordId: id,
@@ -206,7 +206,7 @@ class OrderController {
       await client.query('COMMIT');
 
       await recordHistory({
-        userId: req.user.id,
+        userId: req.user?.id || null,
         action: 'INSERT',
         tableName: 'payments',
         recordId: id,
@@ -229,7 +229,7 @@ class OrderController {
       const deleted = await OrderModel.delete(id);
 
       await recordHistory({
-        userId: req.user.id,
+        userId: req.user?.id || null,
         action: 'DELETE',
         tableName: 'orders',
         recordId: id,
@@ -245,7 +245,7 @@ class OrderController {
   static async getInvoices(req, res, next) {
     try {
       const { userId, paymentStatus, limit, offset } = req.query;
-      const filterUserId = req.user.role === 'admin' || req.user.role === 'employee' ? userId : req.user.id;
+      const filterUserId = req.user?.role === 'admin' || req.user?.role === 'employee' ? userId : req.user?.id;
 
       const invoices = await InvoiceModel.findAll({
         userId: filterUserId,
@@ -329,6 +329,29 @@ class OrderController {
       }).catch(() => {});
 
       return successResponse(res, 'Shipping date updated successfully', updatedOrder);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async updateInvoiceDate(req, res, next) {
+    try {
+      const { id } = req.params;
+      const targetId = id || req.body?.invoice_id || req.body?.order_id || req.body?.invoice_number;
+      const targetDate = req.body?.invoice_date || req.body?.order_date || req.body?.date;
+
+      const updated = await OrderModel.updateInvoiceDate(targetId, targetDate);
+
+      await recordHistory({
+        userId: req.user ? req.user.id : null,
+        action: 'UPDATE',
+        tableName: 'invoice',
+        recordId: targetId,
+        newData: { invoice_date: targetDate },
+        ipAddress: req.ip,
+      }).catch(() => {});
+
+      return successResponse(res, 'Invoice date updated successfully', updated);
     } catch (error) {
       next(error);
     }
